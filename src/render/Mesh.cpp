@@ -49,27 +49,25 @@ void Mesh::draw(const Shader& shader) const
     unsigned int diffuseIndex = 1;
 
     for (unsigned int i = 0; i < textures_.size(); ++i) {
-        if (textures_[i].id == 0) {
-            continue;
-        }
-
+        if (textures_[i].id == 0) continue;
         glActiveTexture(GL_TEXTURE0 + i);
         glBindTexture(GL_TEXTURE_2D, textures_[i].id);
-
         if (textures_[i].type == "texture_diffuse") {
             shader.setInt("texture_diffuse" + std::to_string(diffuseIndex), static_cast<int>(i));
             ++diffuseIndex;
             hasDiffuseTexture = true;
         }
     }
-
     shader.setBool("uHasTexture", hasDiffuseTexture);
+    drawDirect();
+    glActiveTexture(GL_TEXTURE0);
+}
 
+void Mesh::drawDirect() const
+{
     glBindVertexArray(vao_);
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_.size()), GL_UNSIGNED_INT, nullptr);
     glBindVertexArray(0);
-
-    glActiveTexture(GL_TEXTURE0);
 }
 
 void Mesh::setupMesh()

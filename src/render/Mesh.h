@@ -32,7 +32,10 @@ public:
     Mesh& operator=(Mesh&& other) noexcept;
 
     void draw(const Shader& shader) const;
+    void drawDirect() const;
     void attachTextureIfMissing(const TextureAsset& texture);
+
+    const std::vector<TextureAsset>& textures() const { return textures_; }
 
 private:
     std::vector<Vertex> vertices_;

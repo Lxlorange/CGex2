@@ -3,6 +3,7 @@
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
+#include <GLFW/glfw3.h>
 
 #include <filesystem>
 #include <iostream>
@@ -42,9 +43,31 @@ Model::~Model()
 
 void Model::draw(const Shader& shader) const
 {
+    struct Group { GLuint texId; std::vector<const Mesh*> meshes; };
+    std::vector<Group> groups;
+
     for (const Mesh& mesh : meshes_) {
-        mesh.draw(shader);
+        GLuint tid = 0;
+        for (const auto& t : mesh.textures()) {
+            if (t.type == "texture_diffuse" && t.id != 0) { tid = t.id; break; }
+        }
+        if (groups.empty() || groups.back().texId != tid)
+            groups.push_back({tid, {}});
+        groups.back().meshes.push_back(&mesh);
     }
+
+    for (const auto& g : groups) {
+        if (g.texId != 0) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, g.texId);
+            shader.setInt("texture_diffuse1", 0);
+            shader.setBool("uHasTexture", true);
+        } else {
+            shader.setBool("uHasTexture", false);
+        }
+        for (const Mesh* m : g.meshes) m->drawDirect();
+    }
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void Model::loadModel(const std::string& modelPath)
@@ -85,6 +108,7 @@ void Model::processNode(aiNode* node, const aiScene* scene)
     for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
         meshes_.push_back(processMesh(mesh, scene));
+        if (meshes_.size() % 50 == 0) glfwPollEvents();
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
@@ -128,56 +152,74 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-        std::vector<TextureAsset> diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
+        std::vector<TextureAsset> diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
         textures.insert(textures.end(), diffuseTextures.begin(), diffuseTextures.end());
     }
 
     return Mesh(std::move(vertices), std::move(indices), std::move(textures));
 }
 
-std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName)
+std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName, const aiScene* scene)
 {
     std::vector<TextureAsset> textures;
 
-    const unsigned int textureCount = material->GetTextureCount(type);
-    for (unsigned int i = 0; i < textureCount; ++i) {
-        aiString texturePath;
-        material->GetTexture(type, i, &texturePath);
+    const unsigned int count = material->GetTextureCount(type);
+    for (unsigned int i = 0; i < count; ++i) {
+        aiString aiPath;
+        material->GetTexture(type, i, &aiPath);
+        std::string rawPath = aiPath.C_Str();
 
-        std::filesystem::path resolvedPath(texturePath.C_Str());
-        if (!resolvedPath.is_absolute()) {
-            resolvedPath = std::filesystem::path(directory_) / resolvedPath;
-        }
+        // ---- Embedded texture (*0, *1, ...) from glTF/GLB ----
+        if (rawPath.size() >= 2 && rawPath[0] == '*' && rawPath[1] >= '0' && rawPath[1] <= '9' && scene) {
+            int idx = std::stoi(rawPath.substr(1));
+            if (idx >= 0 && idx < static_cast<int>(scene->mNumTextures) && scene->mTextures[idx]) {
+                aiTexture* tex = scene->mTextures[idx];
+                GLuint glId = 0;
 
-        const std::string normalized = normalizePathString(resolvedPath);
-        bool alreadyLoaded = false;
-        for (const TextureAsset& loadedTexture : loadedTextures_) {
-            if (loadedTexture.path == normalized) {
-                textures.push_back(loadedTexture);
-                alreadyLoaded = true;
-                break;
+                if (tex->mHeight == 0) {
+                    // Compressed (PNG/JPG) — raw bytes in pcData
+                    glId = loadTexture2DFromMemory(
+                        reinterpret_cast<unsigned char*>(tex->pcData), tex->mWidth, true);
+                } else {
+                    // Uncompressed ARGB8888
+                    glId = loadTexture2DFromMemory(
+                        reinterpret_cast<unsigned char*>(tex->pcData), tex->mWidth * tex->mHeight * 4, true);
+                }
+
+                if (glId != 0) {
+                    TextureAsset ta{glId, typeName, rawPath};
+                    textures.push_back(ta);
+                    loadedTextures_.push_back(ta);
+                } else {
+                    std::cerr << "[Model] Embedded texture decode failed: *" << idx << "\n";
+                }
+                continue;
             }
         }
 
-        if (alreadyLoaded) {
-            continue;
+        // ---- File-based texture ----
+        std::filesystem::path resolvedPath(rawPath);
+        if (!resolvedPath.is_absolute())
+            resolvedPath = std::filesystem::path(directory_) / resolvedPath;
+
+        const std::string normalized = normalizePathString(resolvedPath);
+        bool alreadyLoaded = false;
+        for (const auto& lt : loadedTextures_) {
+            if (lt.path == normalized) { textures.push_back(lt); alreadyLoaded = true; break; }
         }
+        if (alreadyLoaded) continue;
 
-        TextureAsset texture;
-        texture.id = loadTexture2DFromFile(normalized);
-        texture.type = typeName;
-        texture.path = normalized;
-
-        if (texture.id != 0) {
-            textures.push_back(texture);
-            loadedTextures_.push_back(texture);
+        TextureAsset ta;
+        ta.id = loadTexture2DFromFile(normalized);
+        ta.type = typeName;
+        ta.path = normalized;
+        if (ta.id != 0) {
+            textures.push_back(ta);
+            loadedTextures_.push_back(ta);
         } else {
-            std::cerr << "[Model] Texture load failed and was skipped.\n"
-                      << "  Model dir: " << directory_ << '\n'
-                      << "  Texture path: " << normalized << '\n';
+            std::cerr << "[Model] Texture load failed: " << normalized << "\n";
         }
     }
-
     return textures;
 }
 

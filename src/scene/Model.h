@@ -29,6 +29,6 @@ private:
     void loadModel(const std::string& modelPath);
     void processNode(aiNode* node, const aiScene* scene);
     Mesh processMesh(aiMesh* mesh, const aiScene* scene);
-    std::vector<TextureAsset> loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName);
+    std::vector<TextureAsset> loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName, const aiScene* scene);
     void applyFallbackDiffuseTexture(const std::string& fallbackDiffuseTexturePath);
 };

@@ -58,13 +58,17 @@ int main()
         "resources/textures/blenderkit_logo.png",
     });
 
-    const std::string cubePath = resolvePath({
-        "resources/material/simple-cube-in-obj-fbx-format/source/HydraMoonSimpleCube.fbx",
+    const std::string modelPath = resolvePath({
+        "resources/models/Tsukinomori.obj",
     });
 
     // ---- Add models here ----
-    if (!cubePath.empty())
-        scene.addModel({cubePath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "TestCube"});
+    if (!modelPath.empty())
+        scene.addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
+
+    // const std::string deskPath = resolvePath({"resources/models/classroom_desk.glb"});
+    // if (!deskPath.empty())
+    //     scene.addModel({deskPath, Transform{glm::vec3(5.0f, 0.0f, 0.0f)}, "Desk"});
 
     if (scene.entries().empty()) {
         std::cerr << "No models in scene.\n"; return -1;
