@@ -1,62 +1,82 @@
-# 计算机图形学实验二
+# Classroom Renderer — 计算机图形学实验二
 
-## 项目介绍
+基于 C++17 + OpenGL 3.3 Core 的轻量级 3D 实时渲染框架。
 
-本项目是《计算机图形学》的实验二，目的是构建了一个基于 C++ 与 OpenGL 核心模式的轻量级 3D 实时渲染引擎。
+## 项目架构
 
-按照实验要求，本项目 **不使用** Unity、Unreal 等任何成熟商业引擎。
-
-项目以一个3D 教室为核心场景，重点实现了基于物理学公式的光照阴影算法、复杂的模型与材质加载系统、以及带有包围盒（AABB）碰撞检测的第一人称漫游控制。
-
-## 技术选型与架构
-
-为了保证开发的高效性与渲染的稳定性，我们选用了业界标准的跨平台图形学基础库：
-
-| 模块类别 | 库名称 | 选型说明 |
-| --- | --- | --- |
-| **构建系统** | **CMake** | 跨平台标准构建工具，解耦特定 IDE 配置，确保团队成员可以在 VS、CLion 或 VS Code 环境下无缝切换。 |
-| **窗口与上下文** | **GLFW** | 轻量级的窗口管理与事件回调库，处理跨平台窗口创建及精准的键盘、鼠标输入监听。 |
-| **函数指针加载** | **GLAD** | 运行时加载 OpenGL 核心模式函数指针，抛弃老旧的固定管线 API。 |
-| **核心数学库** | **GLM** | 专为图形编程设计的数学库，提供与 GLSL 规范高度一致的向量与矩阵运算（平移、旋转、缩放、投影）。 |
-| **3D 模型解析** | **Assimp** | 业界顶级的资产导入库。支持解析复杂的 `.fbx` 格式，高效提取顶点、法线、UV 及层级结构数据。 |
-| **图像数据解码** | **stb_image.h** | 极简的单头文件图像库，用于将外部 `.png` 等纹理文件读取为原始的 RGB/RGBA 像素数组。 |
-| **即时渲染 UI** | **Dear ImGui** | 极其轻量、对图形 API 友好的 UI 库，用于快速构建实时参数调试面板。 |
-
+```
+src/
+  main.cpp                    # 入口：资源配置 + 场景组装
+  core/
+    Application.h/.cpp        # 窗口、输入（鼠标回调+键盘轮询）、主循环
+    Camera.h                  # 双模式相机（FPS / 轨道）
+    Transform.h               # 位置 / 旋转 / 缩放
+  render/
+    Renderer.h/.cpp           # 渲染编排（逐帧设置 uniform）
+    Shader.h/.cpp             # 着色器编译、链接、uniform 绑定
+    Mesh.h/.cpp               # VAO / VBO / EBO 管理 & 绘制
+    Texture.h/.cpp            # stb_image 解码 PNG → OpenGL 纹理
+    Material.h                # 材质属性结构体（供后续扩展）
+  scene/
+    Scene.h/.cpp              # 多模型场景管理器（共享同名模型缓存）
+    Model.h/.cpp              # Assimp 导入 .fbx/.obj，解析顶点/法线/UV
+shaders/
+    model.vert                # 顶点着色器：MVP 变换 + 法线/UV 传递
+    model.frag                # 片元着色器：Blinn-Phong 光照 + 纹理采样
+resources/
+    models/                   # .fbx / .obj / .mtl 模型文件
+    textures/                 # .png / .jpg 贴图
+    material/                 # 测试用简单立方体
+Thirdparty/                   # glad, glfw, glm, assimp, stb
+```
 
 ## 编译与运行
 
-### 1. 环境依赖
+### 依赖
 
-* **编译器**：支持 C++17 标准的编译器 (MSVC / GCC / Clang)
-* **构建工具**：CMake (建议版本 3.15+)
-* **资源说明**：受限于 GitHub 仓库容量管理，本项目的大型 3D 模型与贴图未纳入版本控制。
+| 库 | 用途 | 版本 |
+|----|------|------|
+| GLFW | 窗口 + 输入 | 3.4 |
+| GLAD | OpenGL 加载器 | 4.1 |
+| GLM | 数学库 | 1.0+ |
+| Assimp | 3D 模型导入 | 5.4.3 |
+| stb_image | PNG/JPG 解码 | 最新 |
 
-### 2. 资源配置
-
-```text
-ClassroomRenderer/
-├── src/
-├── shaders/
-├── Thirdparty/           <-- 请自行去对应官网或仓库下载
-|   ├── glad/           
-|   ├── glfw/        
-|   └── glm/         
-└── resources/            <-- 必须手动放置于此
-    ├── models/           # 包含 model.fbx
-    └── textures/         # 包含所有 .png 贴图文件
-
-```
-
-### 3. 构建步骤
-
-通过 CMake 生成构建文件并编译：
+### 构建
 
 ```bash
 mkdir build
 cd build
 cmake ..
 cmake --build . --config Release
+```
+
+### 资源目录
 
 ```
+resources/
+├── models/          # 放置 .fbx / .obj 模型
+└── textures/        # 放置 .png / .jpg 贴图
+└── material/        # 测试用简单立方体
+```
+
+## 操作按键
+
+| 按键 | 功能 |
+|------|------|
+| **左/右键拖拽** | 旋转视角（FPS）/ 围绕目标旋转（轨道） |
+| **F** | 切换 FPS ↔ 轨道相机 |
+| **W A S D** | 移动 / 平移 |
+| **Tab** | 粘滞锁定鼠标（仅 FPS 模式） |
+| **滚轮** | 缩放 FOV（FPS）/ 拉近拉远（轨道） |
+| **Esc** | 退出 |
+
+## TODO
+
+- **添加模型**：编辑 `main.cpp` 中 `scene.addModel(...)` 区域
+- **多光源/阴影**：扩展 `Renderer` 类 + 修改 `model.frag`
+- **材质系统**：扩展 `Material` 结构体并传入着色器
+- **碰撞检测**：在 `Application` 或 `Scene` 中添加物理逻辑
+- **动画**：继承 `Model` 或创建 `AnimatedModel` 类
 
 
