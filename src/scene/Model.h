@@ -5,6 +5,7 @@
 #include <assimp/scene.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class Model {
@@ -25,6 +26,7 @@ public:
 private:
     std::vector<Mesh> meshes_;
     std::vector<TextureAsset> loadedTextures_;
+    std::unordered_map<std::string, GLuint> textureCache_;
     std::string directory_;
     bool loaded_ = false;
 
