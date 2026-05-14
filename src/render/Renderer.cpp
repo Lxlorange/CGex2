@@ -17,7 +17,6 @@ void Renderer::render(const Scene& scene)
     shader_.setMat4("uView", camera_.GetViewMatrix());
     shader_.setVec3("uLightDirection", lightDir_);
     shader_.setVec3("uViewPosition", camera_.Position);
-    shader_.setVec3("uFallbackColor", fallbackColor_);
 
     scene.drawAll(shader_);
 }

@@ -2,11 +2,12 @@
 #include "render/Texture.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/material.h>
 #include <assimp/postprocess.h>
-#include <GLFW/glfw3.h>
 
 #include <filesystem>
 #include <iostream>
+#include <sstream>
 #include <unordered_set>
 
 namespace {
@@ -21,14 +22,23 @@ std::string normalizePathString(const std::filesystem::path& path)
     return path.lexically_normal().generic_string();
 }
 
+std::string extractTexturePathToken(const std::string& rawPath)
+{
+    std::istringstream stream(rawPath);
+    std::string token;
+    std::string lastToken;
+    while (stream >> token) {
+        lastToken = token;
+    }
+    return lastToken.empty() ? rawPath : lastToken;
+}
+
 } // namespace
 
 Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTexturePath)
 {
     loadModel(modelPath);
-    if (loaded_) {
-        applyFallbackDiffuseTexture(fallbackDiffuseTexturePath);
-    }
+    (void)fallbackDiffuseTexturePath;
 }
 
 Model::~Model()
@@ -43,31 +53,23 @@ Model::~Model()
 
 void Model::draw(const Shader& shader) const
 {
-    struct Group { GLuint texId; std::vector<const Mesh*> meshes; };
-    std::vector<Group> groups;
-
     for (const Mesh& mesh : meshes_) {
-        GLuint tid = 0;
-        for (const auto& t : mesh.textures()) {
-            if (t.type == "texture_diffuse" && t.id != 0) { tid = t.id; break; }
-        }
-        if (groups.empty() || groups.back().texId != tid)
-            groups.push_back({tid, {}});
-        groups.back().meshes.push_back(&mesh);
+        mesh.draw(shader);
     }
+}
 
-    for (const auto& g : groups) {
-        if (g.texId != 0) {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, g.texId);
-            shader.setInt("texture_diffuse1", 0);
-            shader.setBool("uHasTexture", true);
-        } else {
-            shader.setBool("uHasTexture", false);
-        }
-        for (const Mesh* m : g.meshes) m->drawDirect();
+void Model::createVertexArraysForCurrentContext()
+{
+    for (Mesh& mesh : meshes_) {
+        mesh.createVertexArrayForCurrentContext();
     }
-    glActiveTexture(GL_TEXTURE0);
+}
+
+void Model::releaseVertexArraysForCurrentContext()
+{
+    for (Mesh& mesh : meshes_) {
+        mesh.releaseVertexArrayForCurrentContext();
+    }
 }
 
 void Model::loadModel(const std::string& modelPath)
@@ -76,9 +78,9 @@ void Model::loadModel(const std::string& modelPath)
     const aiScene* scene = importer.ReadFile(
         modelPath,
         aiProcess_Triangulate
+            | aiProcess_CalcTangentSpace
             | aiProcess_GenSmoothNormals
             | aiProcess_JoinIdenticalVertices
-            | aiProcess_FlipUVs
             | aiProcess_ImproveCacheLocality);
 
     if (scene == nullptr || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0 || scene->mRootNode == nullptr) {
@@ -108,7 +110,6 @@ void Model::processNode(aiNode* node, const aiScene* scene)
     for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
         meshes_.push_back(processMesh(mesh, scene));
-        if (meshes_.size() % 50 == 0) glfwPollEvents();
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
@@ -121,8 +122,10 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     std::vector<TextureAsset> textures;
+    Material materialData;
 
     vertices.reserve(mesh->mNumVertices);
+    indices.reserve(mesh->mNumFaces * 3);
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         Vertex vertex;
 
@@ -132,6 +135,14 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
             vertex.normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
         } else {
             vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+
+        if (mesh->HasTangentsAndBitangents()) {
+            vertex.tangent = glm::vec3(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
+            vertex.bitangent = glm::vec3(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
+        } else {
+            vertex.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+            vertex.bitangent = glm::vec3(0.0f, 0.0f, 1.0f);
         }
 
         if (mesh->mTextureCoords[0] != nullptr) {
@@ -150,13 +161,24 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
         }
     }
 
-    if (mesh->mMaterialIndex >= 0) {
+    if (mesh->mMaterialIndex < scene->mNumMaterials && scene->mMaterials[mesh->mMaterialIndex] != nullptr) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+        aiColor3D diffuseColor(0.8f, 0.8f, 0.8f);
+        if (material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) == AI_SUCCESS) {
+            materialData.diffuse = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        }
+
         std::vector<TextureAsset> diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
         textures.insert(textures.end(), diffuseTextures.begin(), diffuseTextures.end());
+        std::vector<TextureAsset> normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
+        textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());
+        std::vector<TextureAsset> heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);
+        textures.insert(textures.end(), heightTextures.begin(), heightTextures.end());
+        std::vector<TextureAsset> roughnessTextures = loadMaterialTextures(material, aiTextureType_SHININESS, "texture_roughness", scene);
+        textures.insert(textures.end(), roughnessTextures.begin(), roughnessTextures.end());
     }
 
-    return Mesh(std::move(vertices), std::move(indices), std::move(textures));
+    return Mesh(std::move(vertices), std::move(indices), std::move(textures), materialData);
 }
 
 std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName, const aiScene* scene)
@@ -167,7 +189,7 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
     for (unsigned int i = 0; i < count; ++i) {
         aiString aiPath;
         material->GetTexture(type, i, &aiPath);
-        std::string rawPath = aiPath.C_Str();
+        std::string rawPath = extractTexturePathToken(aiPath.C_Str());
 
         // ---- Embedded texture (*0, *1, ...) from glTF/GLB ----
         if (rawPath.size() >= 2 && rawPath[0] == '*' && rawPath[1] >= '0' && rawPath[1] <= '9' && scene) {
@@ -181,9 +203,11 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
                     glId = loadTexture2DFromMemory(
                         reinterpret_cast<unsigned char*>(tex->pcData), tex->mWidth, true);
                 } else {
-                    // Uncompressed ARGB8888
-                    glId = loadTexture2DFromMemory(
-                        reinterpret_cast<unsigned char*>(tex->pcData), tex->mWidth * tex->mHeight * 4, true);
+                    glId = createTexture2DFromRGBAPixels(
+                        tex->pcData,
+                        static_cast<int>(tex->mWidth),
+                        static_cast<int>(tex->mHeight),
+                        true);
                 }
 
                 if (glId != 0) {

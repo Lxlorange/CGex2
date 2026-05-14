@@ -1,25 +1,68 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "Texture.h"
 
-#include <stb_image.h>
-
 #include <iostream>
 
-static GLuint createGLTexture(unsigned char* pixels, int w, int h, int ch)
+static GLuint createGLTexture(const unsigned char* pixels, int w, int h, int ch)
 {
-    GLenum fmt = GL_RGB;
-    if (ch == 1) fmt = GL_RED;
-    else if (ch == 3) fmt = GL_RGB;
-    else if (ch == 4) fmt = GL_RGBA;
+    GLenum dataFormat = GL_RGB;
+    GLenum internalFormat = GL_RGB8;
+    if (ch == 1) {
+        dataFormat = GL_RED;
+        internalFormat = GL_R8;
+    } else if (ch == 2) {
+        dataFormat = GL_RG;
+        internalFormat = GL_RG8;
+    } else if (ch == 3) {
+        dataFormat = GL_RGB;
+        internalFormat = GL_RGB8;
+    } else if (ch == 4) {
+        dataFormat = GL_RGBA;
+        internalFormat = GL_RGBA8;
+    } else {
+        std::cerr << "[Tex] unsupported channel count: " << ch << "\n";
+        return 0;
+    }
 
     GLuint id = 0;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, w, h, 0, dataFormat, GL_UNSIGNED_BYTE, pixels);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return id;
+}
+
+GLuint createTexture2DFromRGBAPixels(const void* pixels, int width, int height, bool bgra)
+{
+    if (!pixels || width <= 0 || height <= 0) {
+        std::cerr << "[Tex] invalid raw RGBA texture data.\n";
+        return 0;
+    }
+
+    GLuint id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        width,
+        height,
+        0,
+        bgra ? GL_BGRA : GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        pixels);
     glGenerateMipmap(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
     return id;

@@ -18,6 +18,8 @@ public:
     void addModel(const ModelEntry& entry) { entries_.push_back(entry); }
     void loadAll(const std::string& fallbackTexturePath);
     void drawAll(class Shader& shader) const;
+    void createVertexArraysForCurrentContext();
+    void releaseVertexArraysForCurrentContext();
 
     const std::vector<ModelEntry>& entries() const { return entries_; }
     size_t modelCount() const { return modelCache_.size(); }

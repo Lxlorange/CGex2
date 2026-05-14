@@ -19,6 +19,8 @@ public:
 
     bool isLoaded() const noexcept { return loaded_; }
     void draw(const Shader& shader) const;
+    void createVertexArraysForCurrentContext();
+    void releaseVertexArraysForCurrentContext();
 
 private:
     std::vector<Mesh> meshes_;

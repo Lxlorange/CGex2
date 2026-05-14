@@ -3,9 +3,16 @@
 #include "render/Shader.h"
 #include "scene/Scene.h"
 
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+
 #include <filesystem>
+#include <atomic>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -34,12 +41,15 @@ std::string resolvePath(const std::vector<std::string>& candidates)
 
 int main()
 {
-    Application::Config appCfg;
+    AppConfig appCfg;
     appCfg.width = 1280; appCfg.height = 720;
     appCfg.title = "Classroom Renderer";
     appCfg.cameraPos = glm::vec3(0.0f, 2.0f, 8.0f);
     appCfg.cameraFov = 45.0f; appCfg.cameraSpeed = 5.0f; appCfg.cameraSensitivity = 0.15f;
     Application app(appCfg);
+    if (app.window() == nullptr) {
+        return -1;
+    }
 
     const std::string vertPath = resolvePath({"shaders/model.vert"});
     const std::string fragPath = resolvePath({"shaders/model.frag"});
@@ -51,7 +61,7 @@ int main()
         std::cerr << "Shader compilation failed.\n"; return -1;
     }
 
-    Scene scene;
+    auto scene = std::make_unique<Scene>();
 
     const std::string fallbackTex = resolvePath({
         "resources/textures/Wood066_1K-PNG_Color.png",
@@ -64,22 +74,84 @@ int main()
 
     // ---- Add models here ----
     if (!modelPath.empty())
-        scene.addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
+        scene->addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
 
     // const std::string deskPath = resolvePath({"resources/models/classroom_desk.glb"});
     // if (!deskPath.empty())
     //     scene.addModel({deskPath, Transform{glm::vec3(5.0f, 0.0f, 0.0f)}, "Desk"});
 
-    if (scene.entries().empty()) {
+    if (scene->entries().empty()) {
         std::cerr << "No models in scene.\n"; return -1;
     }
-    std::cout << "[Main] Loading " << scene.entries().size() << " model(s)...\n";
-    scene.loadAll(fallbackTex);
 
     Renderer renderer(shader, app.camera());
     renderer.setLightDirection(glm::vec3(-0.8f, -1.0f, -0.3f));
     renderer.setFallbackColor(glm::vec3(0.8f, 0.8f, 0.8f));
 
-    app.run([&](float /*dt*/) { renderer.render(scene); });
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    GLFWwindow* loaderWindow = glfwCreateWindow(1, 1, "Asset Loader", nullptr, app.window());
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    if (loaderWindow == nullptr) {
+        std::cerr << "[Main] Failed to create shared OpenGL context for background loading.\n";
+        return -1;
+    }
+
+    auto loadingScene = std::move(scene);
+    std::unique_ptr<Scene> loadedScene;
+    std::mutex loadedSceneMutex;
+    std::atomic_bool loadDone = false;
+    std::atomic_bool loadFailed = false;
+
+    std::thread loader([loaderWindow, fallbackTex, sceneToLoad = std::move(loadingScene), &loadedScene, &loadedSceneMutex, &loadDone, &loadFailed]() mutable {
+        glfwMakeContextCurrent(loaderWindow);
+        if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
+            std::cerr << "[Main] Failed to initialize GLAD in loader context.\n";
+            loadFailed.store(true, std::memory_order_release);
+            loadDone.store(true, std::memory_order_release);
+            return;
+        }
+
+        std::cout << "[Main] Loading " << sceneToLoad->entries().size() << " model(s) in background...\n";
+        sceneToLoad->loadAll(fallbackTex);
+        sceneToLoad->releaseVertexArraysForCurrentContext();
+
+        glfwMakeContextCurrent(nullptr);
+
+        {
+            std::lock_guard<std::mutex> lock(loadedSceneMutex);
+            loadedScene = std::move(sceneToLoad);
+            loadFailed.store(loadedScene->modelCount() == 0, std::memory_order_release);
+        }
+        loadDone.store(true, std::memory_order_release);
+    });
+
+    Scene* activeScene = nullptr;
+    bool sceneActivated = false;
+
+    app.run([&](float /*dt*/) {
+        if (loadDone.load(std::memory_order_acquire) && !sceneActivated) {
+            std::lock_guard<std::mutex> lock(loadedSceneMutex);
+            if (!loadFailed.load(std::memory_order_acquire) && loadedScene) {
+                loadedScene->createVertexArraysForCurrentContext();
+                activeScene = loadedScene.get();
+                std::cout << "[Main] Background model loading complete.\n";
+            } else {
+                std::cerr << "[Main] Background model loading failed.\n";
+            }
+            sceneActivated = true;
+        }
+
+        if (activeScene != nullptr) {
+            renderer.render(*activeScene);
+        }
+    });
+
+    if (loader.joinable()) {
+        loader.join();
+    }
+    glfwMakeContextCurrent(app.window());
+    loadedScene.reset();
+    glfwDestroyWindow(loaderWindow);
+
     return 0;
 }

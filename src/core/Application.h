@@ -6,16 +6,17 @@
 #include <functional>
 #include <string>
 
+struct AppConfig {
+    int width = 1280, height = 720;
+    std::string title = "Classroom Renderer";
+    glm::vec3 cameraPos{0.0f, 1.5f, 5.0f};
+    float cameraFov = 45.0f, cameraSpeed = 5.0f, cameraSensitivity = 0.15f;
+};
+
 class Application {
 public:
-    struct Config {
-        int width = 1280, height = 720;
-        std::string title = "Classroom Renderer";
-        glm::vec3 cameraPos{0.0f, 1.5f, 5.0f};
-        float cameraFov = 45.0f, cameraSpeed = 5.0f, cameraSensitivity = 0.15f;
-    };
 
-    explicit Application(const Config& cfg = {});
+    explicit Application(const AppConfig& cfg = {});
     ~Application();
 
     Application(const Application&) = delete;
@@ -30,7 +31,7 @@ public:
 private:
     GLFWwindow* window_ = nullptr;
     Camera camera_;
-    Config cfg_;
+    AppConfig cfg_;
     float deltaTime_ = 0.0f, lastFrame_ = 0.0f;
 
     bool cursorCaptured_ = false, cursorLocked_ = false;

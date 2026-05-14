@@ -6,22 +6,29 @@ in VS_OUT {
     vec3 normal;
     vec3 worldPos;
     vec2 texCoord;
+    mat3 tbn;
 } fsIn;
 
 uniform bool uHasTexture;
+uniform bool uHasNormalMap;
 uniform sampler2D texture_diffuse1;
-uniform vec3 uFallbackColor;
+uniform sampler2D texture_normal1;
+uniform vec3 uMaterialDiffuse;
 uniform vec3 uLightDirection;
 uniform vec3 uViewPosition;
 
 void main()
 {
-    vec3 baseColor = uFallbackColor;
+    vec3 baseColor = uMaterialDiffuse;
     if (uHasTexture) {
         baseColor = texture(texture_diffuse1, fsIn.texCoord).rgb;
     }
 
     vec3 N = normalize(fsIn.normal);
+    if (uHasNormalMap) {
+        vec3 tangentNormal = texture(texture_normal1, fsIn.texCoord).xyz * 2.0 - 1.0;
+        N = normalize(fsIn.tbn * tangentNormal);
+    }
     vec3 L = normalize(-uLightDirection);
     float diffuseFactor = max(dot(N, L), 0.0);
 

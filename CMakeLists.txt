@@ -13,10 +13,8 @@ endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
     set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty")
-    set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty")
 else()
-    message(FATAL_ERROR "Third-party directory not found. Expected ThirdParty or Thirdparty.")
+    message(FATAL_ERROR "Third-party directory not found. Expected ThirdParty.")
 endif()
 
 set(GLAD_ROOT "${THIRD_PARTY_DIR}/glad")

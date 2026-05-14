@@ -27,7 +27,7 @@ resources/
     models/                   # .fbx / .obj / .mtl 模型文件
     textures/                 # .png / .jpg 贴图
     material/                 # 测试用简单立方体
-Thirdparty/                   # glad, glfw, glm, assimp, stb
+ThirdParty/                   # glad, glfw, glm, assimp, stb
 ```
 
 ## 编译与运行

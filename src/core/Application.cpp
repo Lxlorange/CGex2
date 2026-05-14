@@ -1,7 +1,7 @@
 #include "core/Application.h"
 #include <iostream>
 
-Application::Application(const Config& cfg)
+Application::Application(const AppConfig& cfg)
     : camera_(cfg.cameraPos), cfg_(cfg)
 {
     if (!glfwInit()) {
