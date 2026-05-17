@@ -54,6 +54,7 @@ private:
     std::unordered_map<std::string, GLuint> textureCache_;
     std::unordered_map<std::string, float> materialOpacityOverrides_;
     std::string directory_;
+    bool flipTexturesVertically_ = true;
     bool loaded_ = false;
 
     bool localAabbValid_ = false;
@@ -67,7 +68,7 @@ private:
     void loadModel(const std::string& modelPath);
     void loadMaterialOpacityOverrides(const std::string& modelPath);
     void emitProgress(float normalized, const char* status);
-    void processNode(aiNode* node, const aiScene* scene);
-    Mesh processMesh(aiMesh* mesh, const aiScene* scene);
+    void processNode(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
+    Mesh processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nodeTransform);
     std::vector<TextureAsset> loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName, const aiScene* scene);
 };

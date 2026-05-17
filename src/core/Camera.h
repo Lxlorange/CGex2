@@ -2,6 +2,7 @@
 
 #include <glad/glad.h>
 #include <algorithm>
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -59,15 +60,23 @@ public:
     void fitFreeFlyViewAroundCenter(const glm::vec3& center, float boundingRadius)
     {
         const float r = std::max(boundingRadius, 0.5f);
-        const float distance = std::max(r * 1.8f, 5.0f);
-        Yaw = -90.0f;
-        Pitch = -12.0f;
-        updateCameraVectors();
-        Position = center - Front * distance;
-        Position.y = std::max(Position.y, center.y + std::max(r * 0.18f, 1.2f));
+        const float fov = glm::radians(std::clamp(Zoom, 20.0f, 60.0f));
+        const float distance = std::max((r / std::tan(fov * 0.5f)) * 1.25f, 3.0f);
+        const glm::vec3 viewFrom = glm::normalize(glm::vec3(0.85f, 0.38f, 0.85f));
+        Position = center + viewFrom * distance;
+        lookAt(center);
+        MovementSpeed = std::clamp(r * 0.35f, 1.5f, 25.0f);
     }
 
 private:
+    void lookAt(const glm::vec3& target)
+    {
+        const glm::vec3 direction = glm::normalize(target - Position);
+        Yaw = glm::degrees(std::atan2(direction.z, direction.x));
+        Pitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
+        updateCameraVectors();
+    }
+
     void updateCameraVectors()
     {
         glm::vec3 f;

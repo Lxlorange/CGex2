@@ -9,6 +9,8 @@
 #include <assimp/postprocess.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,6 +20,15 @@
 #include <unordered_set>
 
 namespace {
+
+glm::mat4 toGlmMat4(const aiMatrix4x4& m)
+{
+    return glm::mat4(
+        m.a1, m.b1, m.c1, m.d1,
+        m.a2, m.b2, m.c2, m.d2,
+        m.a3, m.b3, m.c3, m.d3,
+        m.a4, m.b4, m.c4, m.d4);
+}
 
 std::string normalizePathString(const std::filesystem::path& path)
 {
@@ -40,14 +51,50 @@ std::string extractTexturePathToken(const std::string& rawPath)
     return lastToken.empty() ? rawPath : lastToken;
 }
 
-std::string makeEmbeddedTextureKey(const std::string& path)
+std::string makeEmbeddedTextureKey(const aiTexture* texture)
 {
-    return "embedded:" + path;
+    return "embedded_ptr:" + std::to_string(reinterpret_cast<std::uintptr_t>(texture));
 }
 
 std::string makeFileTextureKey(const std::string& normalizedPath)
 {
     return "file:" + normalizedPath;
+}
+
+glm::vec3 normalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
+{
+    const float len2 = glm::dot(value, value);
+    if (len2 <= 1e-12f) {
+        return fallback;
+    }
+    return value * (1.0f / std::sqrt(len2));
+}
+
+GLuint uploadEmbeddedTexture(const aiTexture* embeddedTexture, const std::string& label, bool flipV)
+{
+    if (embeddedTexture == nullptr) {
+        return 0;
+    }
+
+    if (embeddedTexture->mHeight == 0) {
+        // GLB 内嵌 PNG/JPEG 等压缩字节流：必须先用 stb 从内存解码。
+        return loadTexture2DFromMemory(
+            reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
+            static_cast<int>(embeddedTexture->mWidth),
+            flipV);
+    }
+
+    // GLB/Assimp 已解压的 aiTexel 原始像素：不再走 stb，直接上传到 OpenGL。
+    // aiTexel 在内存中按 BGRA 排列，Texture.cpp 使用 GL_BGRA 正确解释。
+    const GLuint id = createTexture2DFromRGBAPixels(
+        embeddedTexture->pcData,
+        static_cast<int>(embeddedTexture->mWidth),
+        static_cast<int>(embeddedTexture->mHeight),
+        true);
+    if (id == 0) {
+        std::cerr << "[Model] Embedded raw texture upload failed: " << label << "\n";
+    }
+    return id;
 }
 
 std::string trimAscii(const std::string& value)
@@ -189,6 +236,10 @@ void Model::loadModel(const std::string& modelPath)
 {
     emitProgress(0.0f, "Starting model load...");
     loadMaterialOpacityOverrides(modelPath);
+    std::string extension = std::filesystem::path(modelPath).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    flipTexturesVertically_ = extension != ".glb" && extension != ".gltf";
 
     Assimp::Importer importer;
     AssimpFileProgress assimpProgress(progressCb_);
@@ -196,15 +247,17 @@ void Model::loadModel(const std::string& modelPath)
         importer.SetProgressHandler(&assimpProgress);
     }
 
+    unsigned int importFlags = aiProcess_Triangulate
+        | aiProcess_CalcTangentSpace
+        | aiProcess_GenSmoothNormals
+        | aiProcess_ImproveCacheLocality;
+    if (flipTexturesVertically_) {
+        importFlags |= aiProcess_JoinIdenticalVertices
+            | aiProcess_FixInfacingNormals;
+    }
+
     emitProgress(0.02f, "Reading model file (Assimp)...");
-    const aiScene* scene = importer.ReadFile(
-        modelPath,
-        aiProcess_Triangulate
-            | aiProcess_CalcTangentSpace
-            | aiProcess_GenSmoothNormals
-            | aiProcess_JoinIdenticalVertices
-            | aiProcess_ImproveCacheLocality
-            | aiProcess_FixInfacingNormals);
+    const aiScene* scene = importer.ReadFile(modelPath, importFlags);
 
     importer.SetProgressHandler(nullptr);
 
@@ -222,7 +275,7 @@ void Model::loadModel(const std::string& modelPath)
     meshTotal_ = std::max(1u, countMeshesUnderNode(scene->mRootNode));
     emitProgress(0.36f, "Building GPU meshes...");
 
-    processNode(scene->mRootNode, scene);
+    processNode(scene->mRootNode, scene, glm::mat4(1.0f));
     loaded_ = !meshes_.empty();
 
     if (!loaded_) {
@@ -287,11 +340,13 @@ void Model::loadMaterialOpacityOverrides(const std::string& modelPath)
     }
 }
 
-void Model::processNode(aiNode* node, const aiScene* scene)
+void Model::processNode(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
 {
+    const glm::mat4 nodeTransform = parentTransform * toGlmMat4(node->mTransformation);
+
     for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-        meshes_.push_back(processMesh(mesh, scene));
+        meshes_.push_back(processMesh(mesh, scene, nodeTransform));
 
         ++meshDone_;
         if (progressCb_) {
@@ -304,11 +359,11 @@ void Model::processNode(aiNode* node, const aiScene* scene)
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-        processNode(node->mChildren[i], scene);
+        processNode(node->mChildren[i], scene, nodeTransform);
     }
 }
 
-Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
+Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nodeTransform)
 {
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
@@ -317,19 +372,29 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 
     vertices.reserve(mesh->mNumVertices);
     indices.reserve(mesh->mNumFaces * 3);
+    glm::mat3 normalMatrix(1.0f);
+    const glm::mat3 linearTransform(nodeTransform);
+    const float det = glm::determinant(linearTransform);
+    if (std::abs(det) > 1e-8f) {
+        normalMatrix = glm::transpose(glm::inverse(linearTransform));
+    }
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         Vertex vertex;
-        vertex.position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        const glm::vec3 localPosition(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        vertex.position = glm::vec3(nodeTransform * glm::vec4(localPosition, 1.0f));
 
         if (mesh->HasNormals()) {
-            vertex.normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+            const glm::vec3 localNormal(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+            vertex.normal = normalizeOrFallback(normalMatrix * localNormal, glm::vec3(0.0f, 1.0f, 0.0f));
         } else {
             vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
         }
 
         if (mesh->HasTangentsAndBitangents()) {
-            vertex.tangent = glm::vec3(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
-            vertex.bitangent = glm::vec3(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
+            const glm::vec3 localTangent(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z);
+            const glm::vec3 localBitangent(mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z);
+            vertex.tangent = normalizeOrFallback(normalMatrix * localTangent, glm::vec3(1.0f, 0.0f, 0.0f));
+            vertex.bitangent = normalizeOrFallback(normalMatrix * localBitangent, glm::vec3(0.0f, 0.0f, 1.0f));
         } else {
             vertex.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
             vertex.bitangent = glm::vec3(0.0f, 0.0f, 1.0f);
@@ -415,73 +480,56 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
             continue;
         }
 
-        std::string rawPath = extractTexturePathToken(aiPath.C_Str());
-        const aiTexture* embeddedTexture = scene ? scene->GetEmbeddedTexture(rawPath.c_str()) : nullptr;
+        const std::string assimpPath = aiPath.C_Str();
+        std::string rawPath = extractTexturePathToken(assimpPath);
+
+        // GLB/glTF 优先路径：Assimp 返回的纹理路径可能是 "*0"、索引 URI 或内部资源名。
+        // 这里必须先用原始 aiString 查询内嵌纹理，不能提前按 OBJ/MTL 规则裁剪路径。
+        const aiTexture* embeddedTexture = scene ? scene->GetEmbeddedTexture(assimpPath.c_str()) : nullptr;
+        if (embeddedTexture == nullptr && rawPath != assimpPath) {
+            embeddedTexture = scene ? scene->GetEmbeddedTexture(rawPath.c_str()) : nullptr;
+        }
         if (embeddedTexture != nullptr) {
-            const std::string cacheKey = makeEmbeddedTextureKey(rawPath);
+            // 内嵌纹理按 aiTexture* 去重，避免同一 GLB buffer 被多个材质槽重复解码/上传。
+            const std::string cacheKey = makeEmbeddedTextureKey(embeddedTexture);
             auto cached = textureCache_.find(cacheKey);
             if (cached != textureCache_.end()) {
-                textures.push_back(TextureAsset{cached->second, typeName, cacheKey});
+                textures.push_back(TextureAsset{cached->second, typeName, assimpPath});
                 continue;
             }
 
-            GLuint glId = 0;
-            if (embeddedTexture->mHeight == 0) {
-                glId = loadTexture2DFromMemory(
-                    reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
-                    static_cast<int>(embeddedTexture->mWidth),
-                    true);
-            } else {
-                glId = createTexture2DFromRGBAPixels(
-                    embeddedTexture->pcData,
-                    static_cast<int>(embeddedTexture->mWidth),
-                    static_cast<int>(embeddedTexture->mHeight),
-                    true);
-            }
-
+            const GLuint glId = uploadEmbeddedTexture(embeddedTexture, assimpPath, flipTexturesVertically_);
             if (glId != 0) {
                 textureCache_[cacheKey] = glId;
-                TextureAsset texture{glId, typeName, cacheKey};
+                TextureAsset texture{glId, typeName, assimpPath};
                 textures.push_back(texture);
                 loadedTextures_.push_back(texture);
             } else {
-                std::cerr << "[Model] Embedded texture decode failed: " << rawPath << "\n";
+                std::cerr << "[Model] Embedded texture decode failed: " << assimpPath << "\n";
             }
             continue;
         }
 
-        if (rawPath.size() >= 2 && rawPath[0] == '*' && rawPath[1] >= '0' && rawPath[1] <= '9' && scene) {
-            const int idx = std::stoi(rawPath.substr(1));
+        const std::string indexedPath = !assimpPath.empty() && assimpPath[0] == '*' ? assimpPath : rawPath;
+        if (indexedPath.size() >= 2 && indexedPath[0] == '*' && indexedPath[1] >= '0' && indexedPath[1] <= '9' && scene) {
+            const int idx = std::stoi(indexedPath.substr(1));
             if (idx >= 0 && idx < static_cast<int>(scene->mNumTextures) && scene->mTextures[idx] != nullptr) {
-                const std::string cacheKey = makeEmbeddedTextureKey(rawPath);
+                const aiTexture* tex = scene->mTextures[idx];
+                const std::string cacheKey = makeEmbeddedTextureKey(tex);
                 auto cached = textureCache_.find(cacheKey);
                 if (cached != textureCache_.end()) {
-                    textures.push_back(TextureAsset{cached->second, typeName, cacheKey});
+                    textures.push_back(TextureAsset{cached->second, typeName, indexedPath});
                     continue;
                 }
 
-                const aiTexture* tex = scene->mTextures[idx];
-                GLuint glId = 0;
-                if (tex->mHeight == 0) {
-                    glId = loadTexture2DFromMemory(
-                        reinterpret_cast<const unsigned char*>(tex->pcData),
-                        static_cast<int>(tex->mWidth),
-                        true);
-                } else {
-                    glId = createTexture2DFromRGBAPixels(
-                        tex->pcData,
-                        static_cast<int>(tex->mWidth),
-                        static_cast<int>(tex->mHeight),
-                        true);
-                }
-
+                const GLuint glId = uploadEmbeddedTexture(tex, indexedPath, flipTexturesVertically_);
                 if (glId != 0) {
                     textureCache_[cacheKey] = glId;
-                    TextureAsset texture{glId, typeName, cacheKey};
+                    TextureAsset texture{glId, typeName, indexedPath};
                     textures.push_back(texture);
                     loadedTextures_.push_back(texture);
                 } else {
-                    std::cerr << "[Model] Embedded texture decode failed: " << rawPath << "\n";
+                    std::cerr << "[Model] Embedded texture decode failed: " << indexedPath << "\n";
                 }
                 continue;
             }
@@ -502,7 +550,7 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
         }
 
         TextureAsset texture;
-        texture.id = loadTexture2DFromFile(normalized);
+        texture.id = loadTexture2DFromFile(normalized, flipTexturesVertically_);
         texture.type = typeName;
         texture.path = normalized;
         if (texture.id != 0) {

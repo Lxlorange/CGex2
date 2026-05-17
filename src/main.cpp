@@ -246,9 +246,12 @@ int main()
     }
 
     const std::string modelPath = resolvePath({
-        // "resources/models/Tsukinomori.obj",
+        "resources/models/partyCarriage.glb",
+        "resources/models/oldschool.glb",
+        "resources/models/oldschool2.glb",
         "resources/models/oldschool.obj",
-        // "resources/models/Tsukinomori.fbx",
+        "resources/models/Tsukinomori.obj",
+        "resources/models/Tsukinomori.fbx",
     });
 
     Scene scene;
@@ -314,7 +317,7 @@ int main()
     renderer.setLightDirection(glm::normalize(glm::vec3(-0.52f, 0.40f, 0.58f)));
 
     LightingState lighting;
-    bool showDemoColliders = true;
+    bool showDemoColliders = false;
     bool useSceneEntryAABBs = true;
     bool collisionEnabled = false;
     bool drawColliders = false;
