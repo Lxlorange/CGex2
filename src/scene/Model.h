@@ -1,5 +1,6 @@
 #pragma once
 
+#include "collision/AABB.h"
 #include "render/Mesh.h"
 
 #include <assimp/scene.h>
@@ -12,13 +13,17 @@
 #include <unordered_map>
 #include <vector>
 
+struct TransparentMeshDraw {
+    const Mesh* mesh = nullptr;
+    glm::mat4 modelMatrix{1.0f};
+    float distanceSquared = 0.0f;
+};
+
 class Model {
 public:
     using LoadProgressCallback = std::function<void(float normalized, const char* status)>;
 
-    explicit Model(const std::string& modelPath,
-                   const std::string& fallbackDiffuseTexturePath = std::string{},
-                   LoadProgressCallback onProgress = {});
+    explicit Model(const std::string& modelPath, LoadProgressCallback onProgress = {});
     ~Model();
 
     Model(const Model&) = delete;
@@ -28,7 +33,10 @@ public:
 
     bool isLoaded() const noexcept { return loaded_; }
     void draw(const Shader& shader) const;
+    void drawOpaque(const Shader& shader) const;
     void drawGeometryOnly() const;
+    void appendTransparentDraws(const glm::mat4& modelMatrix, const glm::vec3& viewPosition,
+                                std::vector<TransparentMeshDraw>& out) const;
 
     void createVertexArraysForCurrentContext();
     void releaseVertexArraysForCurrentContext();
@@ -36,12 +44,15 @@ public:
     bool hasLocalAabb() const noexcept { return localAabbValid_; }
     const glm::vec3& localAabbMin() const noexcept { return localAabbMin_; }
     const glm::vec3& localAabbMax() const noexcept { return localAabbMax_; }
+    void appendWorldMeshAABBs(const glm::mat4& modelMatrix, const std::string& namePrefix,
+                              std::vector<NamedAABB>& out) const;
     void worldBounds(const glm::mat4& modelMatrix, glm::vec3& outMin, glm::vec3& outMax) const;
 
 private:
     std::vector<Mesh> meshes_;
     std::vector<TextureAsset> loadedTextures_;
     std::unordered_map<std::string, GLuint> textureCache_;
+    std::unordered_map<std::string, float> materialOpacityOverrides_;
     std::string directory_;
     bool loaded_ = false;
 
@@ -54,9 +65,9 @@ private:
     unsigned meshDone_ = 0;
 
     void loadModel(const std::string& modelPath);
+    void loadMaterialOpacityOverrides(const std::string& modelPath);
     void emitProgress(float normalized, const char* status);
     void processNode(aiNode* node, const aiScene* scene);
     Mesh processMesh(aiMesh* mesh, const aiScene* scene);
     std::vector<TextureAsset> loadMaterialTextures(aiMaterial* material, aiTextureType type, const std::string& typeName, const aiScene* scene);
-    void applyFallbackDiffuseTexture(const std::string& fallbackDiffuseTexturePath);
 };

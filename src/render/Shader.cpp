@@ -1,5 +1,7 @@
 #include "Shader.h"
 
+#include <GLFW/glfw3.h>
+
 #include <glm/gtc/type_ptr.hpp>
 
 #include <fstream>
@@ -198,9 +200,10 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath)
 
 Shader::~Shader()
 {
-    if (ID != 0) {
+    if (ID != 0 && glfwGetCurrentContext() != nullptr) {
         glDeleteProgram(ID);
     }
+    ID = 0;
 }
 
 Shader::Shader(Shader&& other) noexcept
@@ -211,7 +214,7 @@ Shader::Shader(Shader&& other) noexcept
 Shader& Shader::operator=(Shader&& other) noexcept
 {
     if (this != &other) {
-        if (ID != 0) {
+        if (ID != 0 && glfwGetCurrentContext() != nullptr) {
             glDeleteProgram(ID);
         }
         ID = std::exchange(other.ID, 0);

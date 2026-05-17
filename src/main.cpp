@@ -101,27 +101,25 @@ bool intersectsAny(const AABB& box, const std::vector<NamedAABB>& colliders)
 void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
                             const std::vector<NamedAABB>& colliders)
 {
-    if (colliders.empty() || !intersectsAny(cameraBodyAabb(camera.Position), colliders)) {
+    if (colliders.empty()) {
         return;
     }
 
     const glm::vec3 desired = camera.Position;
     glm::vec3 candidate = previousPosition;
 
-    candidate.x = desired.x;
-    if (intersectsAny(cameraBodyAabb(candidate), colliders)) {
-        candidate.x = previousPosition.x;
-    }
+    auto tryAxis = [&](int axis) {
+        glm::vec3 next = candidate;
+        next[axis] = desired[axis];
+        if (!intersectsAny(cameraBodyAabb(next), colliders)) {
+            candidate = next;
+        }
+    };
 
-    candidate.y = desired.y;
-    if (intersectsAny(cameraBodyAabb(candidate), colliders)) {
-        candidate.y = previousPosition.y;
-    }
-
-    candidate.z = desired.z;
-    if (intersectsAny(cameraBodyAabb(candidate), colliders)) {
-        candidate.z = previousPosition.z;
-    }
+    // Axis-separated sliding: a blocked axis rolls back while other axes can still move.
+    tryAxis(0);
+    tryAxis(2);
+    tryAxis(1);
 
     camera.Position = candidate;
 }
@@ -210,7 +208,7 @@ int main()
     appCfg.cameraPos = glm::vec3(0.0f, 2.0f, 12.0f);
     appCfg.cameraFov = 45.0f;
     appCfg.cameraSpeed = 5.0f;
-    appCfg.cameraSensitivity = 0.15f;
+    appCfg.cameraSensitivity = 0.06f;
 
     Application app(appCfg);
     if (!app.window()) {
@@ -247,15 +245,10 @@ int main()
         return -1;
     }
 
-    const std::string fallbackTex = resolvePath({
-        "resources/textures/Wood066_1K-PNG_Color.png",
-        "resources/textures/blenderkit_logo.png",
-    });
-
     const std::string modelPath = resolvePath({
-        "resources/models/Tsukinomori.obj",
-        "resources/models/Tsukinomori.fbx",
-        "resources/models/model.fbx",
+        // "resources/models/Tsukinomori.obj",
+        "resources/models/oldschool.obj",
+        // "resources/models/Tsukinomori.fbx",
     });
 
     Scene scene;
@@ -307,14 +300,14 @@ int main()
     };
 
     std::cout << "[Main] Loading " << scene.entries().size() << " model(s)...\n";
-    scene.loadAll(fallbackTex, pumpLoadUi);
+    scene.loadAll(pumpLoadUi);
 
     glm::vec3 bmin;
     glm::vec3 bmax;
     if (scene.computeWorldBounds(bmin, bmax)) {
         const glm::vec3 center = 0.5f * (bmin + bmax);
         const float radius = 0.5f * glm::length(bmax - bmin);
-        app.camera().fitOrbitAroundCenter(center, radius);
+        app.camera().fitFreeFlyViewAroundCenter(center, radius);
     }
 
     Renderer renderer(shader, depthShader, app.camera());
@@ -322,7 +315,7 @@ int main()
 
     LightingState lighting;
     bool showDemoColliders = true;
-    bool useSceneEntryAABBs = false;
+    bool useSceneEntryAABBs = true;
     bool collisionEnabled = false;
     bool drawColliders = false;
     bool showImGuiDemo = false;
@@ -360,8 +353,7 @@ int main()
         ImGui::Checkbox("ImGui demo window", &showImGuiDemo);
         ImGui::Separator();
         ImGui::TextWrapped(
-            "Single merged classroom mesh has one huge world AABB; it is a poor wall collider. "
-            "Use demo walls for gameplay, or split furniture into separate scene.addModel entries.");
+            "Scene AABBs are generated per mesh, so debug lines and collision use finer model bounds.");
         ImGui::End();
 
         if (showImGuiDemo) {
@@ -378,7 +370,7 @@ int main()
         }
 
         Camera& cam = app.camera();
-        if (collisionEnabled && cam.Mode == CameraMode::FirstPerson) {
+        if (collisionEnabled) {
             resolveCameraCollision(cam, lastCameraPosition, colliders);
         }
         lastCameraPosition = cam.Position;

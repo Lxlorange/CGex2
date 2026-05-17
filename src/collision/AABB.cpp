@@ -32,9 +32,9 @@ AABB AABB::fromLocalWithTransform(const glm::vec3& localMin, const glm::vec3& lo
 bool AABB::intersects(const AABB& o) const noexcept
 {
     if (!valid() || !o.valid()) return false;
-    return (max.x >= o.min.x && min.x <= o.max.x)
-        && (max.y >= o.min.y && min.y <= o.max.y)
-        && (max.z >= o.min.z && min.z <= o.max.z);
+    return (max.x > o.min.x && min.x < o.max.x)
+        && (max.y > o.min.y && min.y < o.max.y)
+        && (max.z > o.min.z && min.z < o.max.z);
 }
 
 void appendDemoRoomColliders(std::vector<NamedAABB>& out)

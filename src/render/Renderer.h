@@ -10,6 +10,11 @@ class Renderer {
 public:
     Renderer(Shader& litShader, Shader& depthShader, Camera& camera);
 
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
+    Renderer(Renderer&&) = delete;
+    Renderer& operator=(Renderer&&) = delete;
+
     void setLightDirection(const glm::vec3& dir) { lightDir_ = glm::normalize(dir); }
     void setDirectionalShadowsEnabled(bool enabled) { directionalShadowsEnabled_ = enabled; }
 

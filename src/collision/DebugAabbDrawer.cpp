@@ -1,5 +1,7 @@
 #include "collision/DebugAabbDrawer.h"
 
+#include <GLFW/glfw3.h>
+
 #include <array>
 #include <cstddef>
 
@@ -41,8 +43,20 @@ DebugAabbDrawer::DebugAabbDrawer(Shader&& shader)
 
 DebugAabbDrawer::~DebugAabbDrawer()
 {
-    if (vbo_ != 0) glDeleteBuffers(1, &vbo_);
-    if (vao_ != 0) glDeleteVertexArrays(1, &vao_);
+    if (glfwGetCurrentContext() == nullptr) {
+        vbo_ = 0;
+        vao_ = 0;
+        return;
+    }
+
+    if (vao_ != 0) {
+        glDeleteVertexArrays(1, &vao_);
+        vao_ = 0;
+    }
+    if (vbo_ != 0) {
+        glDeleteBuffers(1, &vbo_);
+        vbo_ = 0;
+    }
 }
 
 void DebugAabbDrawer::draw(const glm::mat4& projection, const glm::mat4& view,

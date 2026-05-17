@@ -5,23 +5,18 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-enum class Camera_Movement { FORWARD, BACKWARD, LEFT, RIGHT };
-enum class CameraMode { FirstPerson, Orbit };
+enum class Camera_Movement { FORWARD, BACKWARD, LEFT, RIGHT, UP, DOWN };
 
 constexpr float YAW = -90.0f;
 constexpr float PITCH = 0.0f;
 constexpr float SPEED = 2.5f;
-constexpr float SENSITIVITY = 0.1f;
+constexpr float SENSITIVITY = 0.06f;
 constexpr float ZOOM = 45.0f;
 
 class Camera {
 public:
     glm::vec3 Position, Front, Up, Right, WorldUp;
     float Yaw, Pitch, MovementSpeed, MouseSensitivity, Zoom;
-
-    CameraMode Mode = CameraMode::FirstPerson;
-    glm::vec3 OrbitTarget{0.0f};
-    float OrbitDistance = 5.0f;
 
     explicit Camera(glm::vec3 position = glm::vec3(0.0f, 0.0f, 3.0f),
                     glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f),
@@ -42,7 +37,8 @@ public:
         if (dir == Camera_Movement::BACKWARD) Position -= f * v;
         if (dir == Camera_Movement::LEFT)     Position -= r * v;
         if (dir == Camera_Movement::RIGHT)    Position += r * v;
-        if (Mode == CameraMode::Orbit) OrbitTarget = Position + Front * OrbitDistance;
+        if (dir == Camera_Movement::UP)       Position.y += v;
+        if (dir == Camera_Movement::DOWN)     Position.y -= v;
     }
 
     void ProcessMouseMovement(float xoff, float yoff, bool clamp = true)
@@ -51,52 +47,24 @@ public:
         Yaw += xoff; Pitch += yoff;
         if (clamp) { if (Pitch > 89.0f) Pitch = 89.0f; if (Pitch < -89.0f) Pitch = -89.0f; }
         updateCameraVectors();
-        if (Mode == CameraMode::Orbit) Position = OrbitTarget - Front * OrbitDistance;
-    }
-
-    void ProcessOrbit(float xoff, float yoff)
-    {
-        xoff *= MouseSensitivity; yoff *= MouseSensitivity;
-        Yaw += xoff; Pitch -= yoff;
-        if (Pitch > 89.0f) Pitch = 89.0f; if (Pitch < -89.0f) Pitch = -89.0f;
-        updateCameraVectors();
-        Position = OrbitTarget - Front * OrbitDistance;
     }
 
     void ProcessZoom(float offset)
     {
-        if (Mode == CameraMode::Orbit) {
-            OrbitDistance -= offset;
-            if (OrbitDistance < 0.5f) OrbitDistance = 0.5f;
-            if (OrbitDistance > 200.0f) OrbitDistance = 200.0f;
-            Position = OrbitTarget - Front * OrbitDistance;
-        } else {
-            Zoom -= offset;
-            if (Zoom < 1.0f) Zoom = 1.0f;
-            if (Zoom > 45.0f) Zoom = 45.0f;
-        }
+        Zoom -= offset;
+        if (Zoom < 1.0f) Zoom = 1.0f;
+        if (Zoom > 60.0f) Zoom = 60.0f;
     }
 
-    void SetMode(CameraMode mode)
+    void fitFreeFlyViewAroundCenter(const glm::vec3& center, float boundingRadius)
     {
-        if (mode == Mode) return;
-        if (mode == CameraMode::Orbit)
-            OrbitTarget = Position + Front * OrbitDistance;
-        else
-            OrbitDistance = glm::distance(Position, OrbitTarget);
-        Mode = mode;
-    }
-
-    void fitOrbitAroundCenter(const glm::vec3& center, float boundingRadius)
-    {
-        OrbitTarget = center;
         const float r = std::max(boundingRadius, 0.5f);
-        OrbitDistance = std::max(r * 2.0f, 5.0f);
-        Yaw = -125.0f;
-        Pitch = -18.0f;
+        const float distance = std::max(r * 1.8f, 5.0f);
+        Yaw = -90.0f;
+        Pitch = -12.0f;
         updateCameraVectors();
-        Position = OrbitTarget - Front * OrbitDistance;
-        Mode = CameraMode::Orbit;
+        Position = center - Front * distance;
+        Position.y = std::max(Position.y, center.y + std::max(r * 0.18f, 1.2f));
     }
 
 private:

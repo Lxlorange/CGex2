@@ -4,9 +4,9 @@
 #include <algorithm>
 #include <iostream>
 #include <limits>
+#include <vector>
 
-void Scene::loadAll(const std::string& fallbackTexturePath,
-                    const std::function<void(float, const char*)>& onProgress)
+void Scene::loadAll(const std::function<void(float, const char*)>& onProgress)
 {
     size_t pendingCount = 0;
     for (const auto& entry : entries_) {
@@ -39,7 +39,7 @@ void Scene::loadAll(const std::string& fallbackTexturePath,
             onProgress(std::min(1.0f, global), msg);
         };
 
-        auto model = std::make_unique<Model>(entry.path, fallbackTexturePath, scaledProgress);
+        auto model = std::make_unique<Model>(entry.path, scaledProgress);
         if (!model->isLoaded()) {
             std::cerr << "[Scene] Failed: " << entry.name << " (" << entry.path << ")\n";
             continue;
@@ -52,20 +52,43 @@ void Scene::loadAll(const std::string& fallbackTexturePath,
     }
 }
 
-void Scene::drawAll(Shader& shader, bool geometryOnly) const
+void Scene::drawAll(Shader& shader, bool geometryOnly, const glm::vec3* viewPosition) const
 {
+    std::vector<TransparentMeshDraw> transparentDraws;
+
     for (const auto& entry : entries_) {
         auto it = modelCache_.find(entry.path);
         if (it == modelCache_.end() || !it->second->isLoaded()) {
             continue;
         }
 
-        shader.setMat4("uModel", entry.transform.matrix());
+        const glm::mat4 modelMatrix = entry.transform.matrix();
+        shader.setMat4("uModel", modelMatrix);
         if (geometryOnly) {
             it->second->drawGeometryOnly();
+        } else if (viewPosition != nullptr) {
+            it->second->drawOpaque(shader);
+            it->second->appendTransparentDraws(modelMatrix, *viewPosition, transparentDraws);
         } else {
             it->second->draw(shader);
         }
+    }
+
+    if (geometryOnly || viewPosition == nullptr || transparentDraws.empty()) {
+        return;
+    }
+
+    std::sort(transparentDraws.begin(), transparentDraws.end(),
+              [](const TransparentMeshDraw& a, const TransparentMeshDraw& b) {
+                  return a.distanceSquared > b.distanceSquared;
+              });
+
+    for (const TransparentMeshDraw& draw : transparentDraws) {
+        if (draw.mesh == nullptr) {
+            continue;
+        }
+        shader.setMat4("uModel", draw.modelMatrix);
+        draw.mesh->draw(shader);
     }
 }
 
@@ -94,15 +117,10 @@ std::vector<NamedAABB> Scene::namedWorldAABBs() const
     std::vector<NamedAABB> out;
     for (const auto& entry : entries_) {
         auto it = modelCache_.find(entry.path);
-        if (it == modelCache_.end() || !it->second->isLoaded() || !it->second->hasLocalAabb()) {
+        if (it == modelCache_.end() || !it->second->isLoaded()) {
             continue;
         }
-
-        const AABB world = AABB::fromLocalWithTransform(
-            it->second->localAabbMin(),
-            it->second->localAabbMax(),
-            entry.transform.matrix());
-        out.push_back({entry.name, world});
+        it->second->appendWorldMeshAABBs(entry.transform.matrix(), entry.name, out);
     }
     return out;
 }

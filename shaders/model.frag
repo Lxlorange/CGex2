@@ -60,6 +60,7 @@ uniform bool uHasNormalMap;
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal1;
 uniform vec3 uMaterialDiffuse;
+uniform float uMaterialAlpha;
 uniform vec3 uViewPosition;
 
 const float kShininess = 48.0;
@@ -167,8 +168,11 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir, vec
 void main()
 {
     vec3 baseColor = uMaterialDiffuse;
+    float alpha = uMaterialAlpha;
     if (uHasTexture) {
-        baseColor = texture(texture_diffuse1, fsIn.texCoord).rgb;
+        vec4 texColor = texture(texture_diffuse1, fsIn.texCoord);
+        baseColor = texColor.rgb;
+        alpha *= texColor.a;
     }
 
     vec3 norm = normalize(fsIn.normal);
@@ -231,5 +235,5 @@ void main()
 
     vec3 color = max(result * uExposure, vec3(0.0));
     color = pow(color, vec3(1.0 / 2.2));
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(color, alpha);
 }

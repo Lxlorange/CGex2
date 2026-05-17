@@ -15,6 +15,8 @@ public:
 
     DebugAabbDrawer(const DebugAabbDrawer&) = delete;
     DebugAabbDrawer& operator=(const DebugAabbDrawer&) = delete;
+    DebugAabbDrawer(DebugAabbDrawer&&) = delete;
+    DebugAabbDrawer& operator=(DebugAabbDrawer&&) = delete;
 
     void draw(const glm::mat4& projection, const glm::mat4& view,
               const std::vector<NamedAABB>& boxes, const glm::vec3& color) const;

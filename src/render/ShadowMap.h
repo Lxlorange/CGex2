@@ -11,6 +11,8 @@ public:
 
     ShadowMap(const ShadowMap&) = delete;
     ShadowMap& operator=(const ShadowMap&) = delete;
+    ShadowMap(ShadowMap&&) = delete;
+    ShadowMap& operator=(ShadowMap&&) = delete;
 
     int width() const { return width_; }
     int height() const { return height_; }

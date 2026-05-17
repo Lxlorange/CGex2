@@ -125,5 +125,5 @@ void Renderer::render(const Scene& scene)
             1.0f, 0.11f, 0.09f, plAmb, plDiff, plSpec);
     }
 
-    scene.drawAll(litShader_, false);
+    scene.drawAll(litShader_, false, &camera_.Position);
 }

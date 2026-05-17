@@ -1,6 +1,8 @@
 #include "scene/Model.h"
 #include "render/Texture.h"
 
+#include <GLFW/glfw3.h>
+
 #include <assimp/Importer.hpp>
 #include <assimp/ProgressHandler.hpp>
 #include <assimp/material.h>
@@ -8,9 +10,11 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <string>
 #include <unordered_set>
 
 namespace {
@@ -44,6 +48,16 @@ std::string makeEmbeddedTextureKey(const std::string& path)
 std::string makeFileTextureKey(const std::string& normalizedPath)
 {
     return "file:" + normalizedPath;
+}
+
+std::string trimAscii(const std::string& value)
+{
+    const auto begin = value.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) {
+        return {};
+    }
+    const auto end = value.find_last_not_of(" \t\r\n");
+    return value.substr(begin, end - begin + 1);
 }
 
 unsigned countMeshesUnderNode(const aiNode* node)
@@ -82,19 +96,21 @@ private:
 
 } // namespace
 
-Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTexturePath,
-             LoadProgressCallback onProgress)
+Model::Model(const std::string& modelPath, LoadProgressCallback onProgress)
     : progressCb_(std::move(onProgress))
 {
     loadModel(modelPath);
     if (loaded_) {
-        applyFallbackDiffuseTexture(fallbackDiffuseTexturePath);
         emitProgress(1.0f, "Model ready.");
     }
 }
 
 Model::~Model()
 {
+    if (glfwGetCurrentContext() == nullptr) {
+        return;
+    }
+
     std::unordered_set<GLuint> deleted;
     for (const TextureAsset& texture : loadedTextures_) {
         if (texture.id != 0 && deleted.insert(texture.id).second) {
@@ -114,14 +130,44 @@ void Model::emitProgress(float normalized, const char* status)
 void Model::drawGeometryOnly() const
 {
     for (const Mesh& mesh : meshes_) {
-        mesh.drawDirect();
+        if (!mesh.isTransparent()) {
+            mesh.drawDirect();
+        }
     }
 }
 
 void Model::draw(const Shader& shader) const
 {
+    drawOpaque(shader);
+
     for (const Mesh& mesh : meshes_) {
-        mesh.draw(shader);
+        if (mesh.isTransparent()) {
+            mesh.draw(shader);
+        }
+    }
+}
+
+void Model::drawOpaque(const Shader& shader) const
+{
+    for (const Mesh& mesh : meshes_) {
+        if (!mesh.isTransparent()) {
+            mesh.draw(shader);
+        }
+    }
+}
+
+void Model::appendTransparentDraws(const glm::mat4& modelMatrix, const glm::vec3& viewPosition,
+                                   std::vector<TransparentMeshDraw>& out) const
+{
+    for (const Mesh& mesh : meshes_) {
+        if (!mesh.isTransparent() || !mesh.hasLocalBounds()) {
+            continue;
+        }
+
+        const glm::vec3 localCenter = 0.5f * (mesh.localBoundsMin() + mesh.localBoundsMax());
+        const glm::vec3 worldCenter = glm::vec3(modelMatrix * glm::vec4(localCenter, 1.0f));
+        const glm::vec3 delta = worldCenter - viewPosition;
+        out.push_back({&mesh, modelMatrix, glm::dot(delta, delta)});
     }
 }
 
@@ -142,6 +188,7 @@ void Model::releaseVertexArraysForCurrentContext()
 void Model::loadModel(const std::string& modelPath)
 {
     emitProgress(0.0f, "Starting model load...");
+    loadMaterialOpacityOverrides(modelPath);
 
     Assimp::Importer importer;
     AssimpFileProgress assimpProgress(progressCb_);
@@ -187,6 +234,56 @@ void Model::loadModel(const std::string& modelPath)
                   << "  Path: " << modelPath << '\n'
                   << "  Mesh count: " << meshes_.size() << '\n';
         emitProgress(0.85f, "Geometry upload complete.");
+    }
+}
+
+void Model::loadMaterialOpacityOverrides(const std::string& modelPath)
+{
+    materialOpacityOverrides_.clear();
+
+    const std::filesystem::path mtlPath = std::filesystem::path(modelPath).replace_extension(".mtl");
+    std::ifstream file(mtlPath);
+    if (!file.is_open()) {
+        return;
+    }
+
+    std::string currentMaterial;
+    std::string line;
+    while (std::getline(file, line)) {
+        line = trimAscii(line);
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        std::istringstream stream(line);
+        std::string key;
+        stream >> key;
+        if (key == "newmtl") {
+            std::string name;
+            std::getline(stream, name);
+            currentMaterial = trimAscii(name);
+            continue;
+        }
+
+        if (currentMaterial.empty()) {
+            continue;
+        }
+
+        float value = 1.0f;
+        if (key == "d" && (stream >> value)) {
+            const float opacity = std::clamp(value, 0.0f, 1.0f);
+            materialOpacityOverrides_[currentMaterial] = opacity;
+            if (opacity < 0.995f) {
+                std::cerr << "[Model] MTL opacity: " << currentMaterial << " d=" << opacity << '\n';
+            }
+        } else if (key == "Tr" && (stream >> value)) {
+            const float opacity = std::clamp(1.0f - value, 0.0f, 1.0f);
+            materialOpacityOverrides_[currentMaterial] = opacity;
+            if (opacity < 0.995f) {
+                std::cerr << "[Model] MTL opacity: " << currentMaterial << " Tr=" << value
+                          << " opacity=" << opacity << '\n';
+            }
+        }
     }
 }
 
@@ -273,9 +370,23 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 
     if (mesh->mMaterialIndex < scene->mNumMaterials && scene->mMaterials[mesh->mMaterialIndex] != nullptr) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+        std::string materialName;
+        aiString assimpMaterialName;
+        if (material->Get(AI_MATKEY_NAME, assimpMaterialName) == AI_SUCCESS) {
+            materialName = assimpMaterialName.C_Str();
+        }
+
         aiColor3D diffuseColor(0.8f, 0.8f, 0.8f);
         if (material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) == AI_SUCCESS) {
             materialData.diffuse = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        }
+        float opacity = 1.0f;
+        if (material->Get(AI_MATKEY_OPACITY, opacity) == AI_SUCCESS) {
+            materialData.opacity = std::clamp(opacity, 0.0f, 1.0f);
+        }
+        const auto opacityOverride = materialOpacityOverrides_.find(materialName);
+        if (opacityOverride != materialOpacityOverrides_.end()) {
+            materialData.opacity = opacityOverride->second;
         }
 
         auto diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
@@ -405,33 +516,20 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
     return textures;
 }
 
-void Model::applyFallbackDiffuseTexture(const std::string& fallbackDiffuseTexturePath)
+void Model::appendWorldMeshAABBs(const glm::mat4& modelMatrix, const std::string& namePrefix,
+                                std::vector<NamedAABB>& out) const
 {
-    if (fallbackDiffuseTexturePath.empty()) {
-        return;
-    }
-
-    const std::string normalizedFallback = normalizePathString(fallbackDiffuseTexturePath);
-    const std::string cacheKey = makeFileTextureKey(normalizedFallback);
-    GLuint textureId = 0;
-    auto cached = textureCache_.find(cacheKey);
-    if (cached != textureCache_.end()) {
-        textureId = cached->second;
-    } else {
-        textureId = loadTexture2DFromFile(normalizedFallback);
-        if (textureId != 0) {
-            textureCache_[cacheKey] = textureId;
-            loadedTextures_.push_back(TextureAsset{textureId, "texture_diffuse", normalizedFallback});
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        const Mesh& mesh = meshes_[i];
+        if (!mesh.hasLocalBounds()) {
+            continue;
         }
-    }
 
-    if (textureId == 0) {
-        return;
-    }
-
-    const TextureAsset fallbackTexture {textureId, "texture_diffuse", normalizedFallback};
-    for (Mesh& mesh : meshes_) {
-        mesh.attachTextureIfMissing(fallbackTexture);
+        const AABB world = AABB::fromLocalWithTransform(
+            mesh.localBoundsMin(),
+            mesh.localBoundsMax(),
+            modelMatrix);
+        out.push_back({namePrefix + "/mesh_" + std::to_string(i), world});
     }
 }
 

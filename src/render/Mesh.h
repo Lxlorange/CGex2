@@ -40,11 +40,16 @@ public:
     void draw(const Shader& shader) const;
     void drawDirect() const;
     void attachTextureIfMissing(const TextureAsset& texture);
+    bool hasTextureType(const std::string& type) const;
+    bool isTransparent() const noexcept { return material_.opacity < 0.995f; }
     void createVertexArrayForCurrentContext();
     void releaseVertexArrayForCurrentContext();
 
     const std::vector<TextureAsset>& textures() const { return textures_; }
     glm::vec3 materialKd() const { return material_.diffuse; }
+    bool hasLocalBounds() const noexcept { return localBoundsValid_; }
+    const glm::vec3& localBoundsMin() const noexcept { return localBoundsMin_; }
+    const glm::vec3& localBoundsMax() const noexcept { return localBoundsMax_; }
 
     void accumulateWorldBounds(const glm::mat4& model, glm::vec3& outMin, glm::vec3& outMax) const;
 
@@ -57,8 +62,14 @@ private:
     GLuint vao_ = 0;
     GLuint vbo_ = 0;
     GLuint ebo_ = 0;
+    GLsizei indexCount_ = 0;
+    bool localBoundsValid_ = false;
+    glm::vec3 localBoundsMin_{0.0f};
+    glm::vec3 localBoundsMax_{0.0f};
 
+    void computeLocalBounds();
     void setupMesh();
     void setupVertexAttributes() const;
+    void releaseCpuMeshData();
     void releaseGlObjects();
 };

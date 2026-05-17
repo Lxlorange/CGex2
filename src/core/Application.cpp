@@ -8,6 +8,7 @@ Application::Application(const AppConfig& cfg)
         std::cerr << "[App] GLFW init failed.\n";
         return;
     }
+    glfwInitialized_ = true;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -21,6 +22,7 @@ Application::Application(const AppConfig& cfg)
     if (!window_) {
         std::cerr << "[App] Window creation failed.\n";
         glfwTerminate();
+        glfwInitialized_ = false;
         return;
     }
 
@@ -31,6 +33,7 @@ Application::Application(const AppConfig& cfg)
         glfwDestroyWindow(window_);
         glfwTerminate();
         window_ = nullptr;
+        glfwInitialized_ = false;
         return;
     }
 
@@ -41,8 +44,6 @@ Application::Application(const AppConfig& cfg)
     camera_.MovementSpeed = cfg_.cameraSpeed;
     camera_.MouseSensitivity = cfg_.cameraSensitivity;
     camera_.Zoom = cfg_.cameraFov;
-    camera_.OrbitTarget = cfg_.cameraPos + glm::vec3(0.0f, 0.0f, -5.0f);
-    camera_.OrbitDistance = 5.0f;
 
     lastMouseX_ = static_cast<float>(cfg_.width) * 0.5f;
     lastMouseY_ = static_cast<float>(cfg_.height) * 0.5f;
@@ -53,13 +54,13 @@ Application::Application(const AppConfig& cfg)
     glfwSetInputMode(window_, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
     std::cout << "========================================\n"
-              << "  Left/Right drag : look / orbit\n"
-              << "  WASD            : move (FPS) / pan target (orbit)\n"
-              << "  F               : toggle FPS / Orbit camera\n"
-              << "  Tab             : lock cursor (FPS)\n"
-              << "  Scroll          : zoom\n"
+              << "  Hold mouse drag : rotate view around the camera\n"
+              << "  Tab             : toggle mouse-look lock\n"
+              << "  WASD            : move on the horizontal plane\n"
+              << "  Space/Shift     : move up / down\n"
+              << "  Scroll          : adjust FOV\n"
               << "  Esc             : exit\n"
-              << "  (Startup: orbit camera is fitted to the model bounds.)\n"
+              << "  (Startup: camera is placed to view the loaded model.)\n"
               << "========================================\n";
 }
 
@@ -67,8 +68,12 @@ Application::~Application()
 {
     if (window_) {
         glfwDestroyWindow(window_);
+        window_ = nullptr;
     }
-    glfwTerminate();
+    if (glfwInitialized_) {
+        glfwTerminate();
+        glfwInitialized_ = false;
+    }
 }
 
 void Application::run(std::function<void(float)> renderFn)
@@ -91,18 +96,12 @@ void Application::processInput()
     if (glfwGetKey(window_, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
 
-    bool fNow = (glfwGetKey(window_, GLFW_KEY_F) == GLFW_PRESS);
-    if (fNow && !fWasDown_) {
-        camera_.SetMode(camera_.Mode == CameraMode::FirstPerson
-                        ? CameraMode::Orbit : CameraMode::FirstPerson);
-        std::cout << "[App] Camera: " << (camera_.Mode == CameraMode::Orbit ? "Orbit" : "FPS") << "\n";
-    }
-    fWasDown_ = fNow;
-
     if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::FORWARD, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::BACKWARD, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::LEFT, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::RIGHT, deltaTime_);
+    if (glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::UP, deltaTime_);
+    if (glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::DOWN, deltaTime_);
 
     bool tabNow = (glfwGetKey(window_, GLFW_KEY_TAB) == GLFW_PRESS);
     if (tabNow && !tabWasDown_) {
@@ -113,9 +112,9 @@ void Application::processInput()
     }
     tabWasDown_ = tabNow;
 
-    bool leftHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    bool rightHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    bool shouldCapture = leftHeld || rightHeld || cursorLocked_;
+    const bool leftHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    const bool rightHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    const bool shouldCapture = leftHeld || rightHeld || cursorLocked_;
 
     if (shouldCapture && !cursorCaptured_) {
         cursorCaptured_ = true;
@@ -153,10 +152,7 @@ void Application::cursorPosCallback(GLFWwindow* window, double xpos, double ypos
     app->lastMouseX_ = x;
     app->lastMouseY_ = y;
 
-    if (app->camera_.Mode == CameraMode::Orbit)
-        app->camera_.ProcessOrbit(dx, dy);
-    else
-        app->camera_.ProcessMouseMovement(dx, -dy);
+    app->camera_.ProcessMouseMovement(dx, -dy);
 }
 
 void Application::scrollCallback(GLFWwindow* window, double /*x*/, double y)

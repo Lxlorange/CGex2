@@ -1,5 +1,7 @@
 #include "render/ShadowMap.h"
 
+#include <GLFW/glfw3.h>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -34,11 +36,19 @@ ShadowMap::ShadowMap(int width, int height)
 
 ShadowMap::~ShadowMap()
 {
+    if (glfwGetCurrentContext() == nullptr) {
+        depthTexture_ = 0;
+        fbo_ = 0;
+        return;
+    }
+
     if (depthTexture_ != 0) {
         glDeleteTextures(1, &depthTexture_);
+        depthTexture_ = 0;
     }
     if (fbo_ != 0) {
         glDeleteFramebuffers(1, &fbo_);
+        fbo_ = 0;
     }
 }
 

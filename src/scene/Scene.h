@@ -20,9 +20,8 @@ struct ModelEntry {
 class Scene {
 public:
     void addModel(const ModelEntry& entry) { entries_.push_back(entry); }
-    void loadAll(const std::string& fallbackTexturePath = {},
-                 const std::function<void(float normalized, const char* status)>& onProgress = {});
-    void drawAll(class Shader& shader, bool geometryOnly = false) const;
+    void loadAll(const std::function<void(float normalized, const char* status)>& onProgress = {});
+    void drawAll(class Shader& shader, bool geometryOnly = false, const glm::vec3* viewPosition = nullptr) const;
 
     void createVertexArraysForCurrentContext();
     void releaseVertexArraysForCurrentContext();
