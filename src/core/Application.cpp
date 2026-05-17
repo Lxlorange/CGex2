@@ -59,6 +59,8 @@ Application::Application(const AppConfig& cfg)
               << "  WASD            : move on the horizontal plane\n"
               << "  Space/Shift     : move up / down\n"
               << "  Scroll          : adjust FOV\n"
+              << "  1/2             : day / night lighting\n"
+              << "  O/C             : open / close classroom lights at night\n"
               << "  Esc             : exit\n"
               << "  (Startup: camera is placed to view the loaded model.)\n"
               << "========================================\n";

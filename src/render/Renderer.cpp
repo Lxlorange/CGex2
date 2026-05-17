@@ -2,6 +2,21 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <iostream>
+
+void Renderer::toggleDayNight()
+{
+    dayMode_ = !dayMode_;
+    if (dayMode_) {
+        ambientStrength_ = 0.25f;
+        ambientColor_ = glm::vec3(1.0f, 1.0f, 1.0f);
+        std::cout << "[Renderer] Day mode\n";
+    } else {
+        ambientStrength_ = 0.06f;
+        ambientColor_ = glm::vec3(0.4f, 0.5f, 0.8f);
+        std::cout << "[Renderer] Night mode\n";
+    }
+}
 
 #include <string>
 
@@ -94,6 +109,7 @@ void Renderer::render(const Scene& scene)
 
     const glm::vec3 dir = glm::normalize(lightDir_);
     litShader_.setVec3("dirLight.direction", dir);
+    litShader_.setVec3("uLightDirection", dir);
     litShader_.setMat4("uLightSpaceMatrix", lightSpace);
     litShader_.setInt("uUseDirectionalShadow", wantShadowPass ? 1 : 0);
     litShader_.setInt("shadowMap", kShadowMapUnit);
@@ -124,6 +140,9 @@ void Renderer::render(const Scene& scene)
         setPointLightUniforms(litShader_, i, ceilingY + corners[i],
             1.0f, 0.11f, 0.09f, plAmb, plDiff, plSpec);
     }
+    litShader_.setBool("uLightOn", lightOn_);
+    litShader_.setFloat("uAmbientStrength", ambientStrength_);
+    litShader_.setVec3("uAmbientColor", ambientColor_);
 
     scene.drawAll(litShader_, false, &camera_.Position);
 }

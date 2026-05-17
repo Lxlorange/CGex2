@@ -18,6 +18,11 @@ public:
     void setLightDirection(const glm::vec3& dir) { lightDir_ = glm::normalize(dir); }
     void setDirectionalShadowsEnabled(bool enabled) { directionalShadowsEnabled_ = enabled; }
 
+    void toggleLight() { lightOn_ = !lightOn_; }
+    bool isLightOn() const { return lightOn_; }
+    void toggleDayNight();
+    bool isDayMode() const { return dayMode_; }
+
     void render(const Scene& scene);
 
 private:
@@ -33,4 +38,8 @@ private:
     bool sceneBoundsValid_ = false;
     glm::vec3 sceneBmin_{0.0f};
     glm::vec3 sceneBmax_{0.0f};
+    bool lightOn_ = true;
+    bool dayMode_ = true;
+    float ambientStrength_ = 0.25f;
+    glm::vec3 ambientColor_{1.0f};
 };

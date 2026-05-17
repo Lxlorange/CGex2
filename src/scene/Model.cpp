@@ -77,15 +77,15 @@ GLuint uploadEmbeddedTexture(const aiTexture* embeddedTexture, const std::string
     }
 
     if (embeddedTexture->mHeight == 0) {
-        // GLB 内嵌 PNG/JPEG 等压缩字节流：必须先用 stb 从内存解码。
+        // GLB 内嵌 PNG/JPEG 等压缩字节流：必须先�?stb 从内存解码�?
         return loadTexture2DFromMemory(
             reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
             static_cast<int>(embeddedTexture->mWidth),
             flipV);
     }
 
-    // GLB/Assimp 已解压的 aiTexel 原始像素：不再走 stb，直接上传到 OpenGL。
-    // aiTexel 在内存中按 BGRA 排列，Texture.cpp 使用 GL_BGRA 正确解释。
+    // GLB/Assimp 已解压的 aiTexel 原始像素：不再走 stb，直接上传到 OpenGL�?
+    // aiTexel 在内存中�?BGRA 排列，Texture.cpp 使用 GL_BGRA 正确解释�?
     const GLuint id = createTexture2DFromRGBAPixels(
         embeddedTexture->pcData,
         static_cast<int>(embeddedTexture->mWidth),
@@ -454,6 +454,11 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
             materialData.opacity = opacityOverride->second;
         }
 
+        aiColor3D emissiveColor(0.0f, 0.0f, 0.0f);
+        if (material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor) == AI_SUCCESS) {
+            materialData.emissive = glm::vec3(emissiveColor.r, emissiveColor.g, emissiveColor.b);
+        }
+
         auto diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
         textures.insert(textures.end(), diffuseTextures.begin(), diffuseTextures.end());
         auto specularTextures = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
@@ -483,14 +488,14 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
         const std::string assimpPath = aiPath.C_Str();
         std::string rawPath = extractTexturePathToken(assimpPath);
 
-        // GLB/glTF 优先路径：Assimp 返回的纹理路径可能是 "*0"、索引 URI 或内部资源名。
-        // 这里必须先用原始 aiString 查询内嵌纹理，不能提前按 OBJ/MTL 规则裁剪路径。
+        // GLB/glTF 优先路径：Assimp 返回的纹理路径可能是 "*0"、索�?URI 或内部资源名�?
+        // 这里必须先用原始 aiString 查询内嵌纹理，不能提前按 OBJ/MTL 规则裁剪路径�?
         const aiTexture* embeddedTexture = scene ? scene->GetEmbeddedTexture(assimpPath.c_str()) : nullptr;
         if (embeddedTexture == nullptr && rawPath != assimpPath) {
             embeddedTexture = scene ? scene->GetEmbeddedTexture(rawPath.c_str()) : nullptr;
         }
         if (embeddedTexture != nullptr) {
-            // 内嵌纹理按 aiTexture* 去重，避免同一 GLB buffer 被多个材质槽重复解码/上传。
+            // 内嵌纹理�?aiTexture* 去重，避免同一 GLB buffer 被多个材质槽重复解码/上传�?
             const std::string cacheKey = makeEmbeddedTextureKey(embeddedTexture);
             auto cached = textureCache_.find(cacheKey);
             if (cached != textureCache_.end()) {

@@ -61,7 +61,12 @@ uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal1;
 uniform vec3 uMaterialDiffuse;
 uniform float uMaterialAlpha;
+uniform vec3 uMaterialEmissive;
+uniform vec3 uLightDirection;
 uniform vec3 uViewPosition;
+uniform bool uLightOn;
+uniform float uAmbientStrength;
+uniform vec3 uAmbientColor;
 
 const float kShininess = 48.0;
 const vec3 kSpecularAlbedo = vec3(0.055);
@@ -232,6 +237,7 @@ void main()
     }
 
     result += CalcSpotLight(spotLight, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
+    result += uMaterialEmissive;
 
     vec3 color = max(result * uExposure, vec3(0.0));
     color = pow(color, vec3(1.0 / 2.2));

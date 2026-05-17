@@ -86,6 +86,7 @@ void Mesh::draw(const Shader& shader) const
     shader.setBool("uHasNormalMap", hasNormalTexture);
     shader.setVec3("uMaterialDiffuse", material_.diffuse);
     shader.setFloat("uMaterialAlpha", material_.opacity);
+    shader.setVec3("uMaterialEmissive", material_.emissive);
 
     const bool transparent = isTransparent();
     const GLboolean blendWasEnabled = glIsEnabled(GL_BLEND);
@@ -245,8 +246,8 @@ void Mesh::accumulateWorldBounds(const glm::mat4& model, glm::vec3& outMin, glm:
 
 void Mesh::releaseCpuMeshData()
 {
-    // 顶点/索引已经上传到 VBO/EBO；运行期绘制只需要 GPU buffer 和 indexCount_。
-    // 大型 OBJ 会产生非常大的 CPU 常驻数组，这里主动释放以降低内存峰值和常驻占用。
+    // Vertices/indices are already uploaded to VBO/EBO; rendering only needs GPU buffers and indexCount_.
+    // Large assets otherwise keep a significant duplicate CPU-side copy alive.
     std::vector<Vertex>().swap(vertices_);
     std::vector<unsigned int>().swap(indices_);
 }
