@@ -15,7 +15,6 @@ struct AppConfig {
 
 class Application {
 public:
-
     explicit Application(const AppConfig& cfg = {});
     ~Application();
 

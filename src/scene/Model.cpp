@@ -2,9 +2,11 @@
 #include "render/Texture.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/ProgressHandler.hpp>
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
@@ -43,12 +45,51 @@ std::string makeFileTextureKey(const std::string& normalizedPath)
     return "file:" + normalizedPath;
 }
 
+unsigned countMeshesUnderNode(const aiNode* node)
+{
+    unsigned count = node->mNumMeshes;
+    for (unsigned i = 0; i < node->mNumChildren; ++i) {
+        count += countMeshesUnderNode(node->mChildren[i]);
+    }
+    return count;
+}
+
+class AssimpFileProgress final : public Assimp::ProgressHandler {
+public:
+    explicit AssimpFileProgress(Model::LoadProgressCallback cb)
+        : cb_(std::move(cb))
+    {
+    }
+
+    bool Update(float percentage) override
+    {
+        if (!cb_) {
+            return true;
+        }
+        if (percentage < 0.0f) {
+            cb_(0.12f, "Assimp: processing...");
+            return true;
+        }
+        const float p = std::clamp(percentage, 0.0f, 1.0f);
+        cb_(0.05f + 0.28f * p, "Assimp: reading / parsing file...");
+        return true;
+    }
+
+private:
+    Model::LoadProgressCallback cb_;
+};
+
 } // namespace
 
-Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTexturePath)
+Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTexturePath,
+             LoadProgressCallback onProgress)
+    : progressCb_(std::move(onProgress))
 {
     loadModel(modelPath);
     (void)fallbackDiffuseTexturePath;
+    if (loaded_) {
+        emitProgress(1.0f, "Model ready.");
+    }
 }
 
 Model::~Model()
@@ -59,6 +100,14 @@ Model::~Model()
             glDeleteTextures(1, &texture.id);
         }
     }
+}
+
+void Model::emitProgress(float normalized, const char* status)
+{
+    if (!progressCb_) {
+        return;
+    }
+    progressCb_(std::clamp(normalized, 0.0f, 1.0f), status ? status : "");
 }
 
 void Model::draw(const Shader& shader) const
@@ -84,7 +133,15 @@ void Model::releaseVertexArraysForCurrentContext()
 
 void Model::loadModel(const std::string& modelPath)
 {
+    emitProgress(0.0f, "Starting model load...");
+
     Assimp::Importer importer;
+    AssimpFileProgress assimpProgress(progressCb_);
+    if (progressCb_) {
+        importer.SetProgressHandler(&assimpProgress);
+    }
+
+    emitProgress(0.02f, "Reading model file (Assimp)...");
     const aiScene* scene = importer.ReadFile(
         modelPath,
         aiProcess_Triangulate
@@ -93,25 +150,34 @@ void Model::loadModel(const std::string& modelPath)
             | aiProcess_JoinIdenticalVertices
             | aiProcess_ImproveCacheLocality);
 
+    importer.SetProgressHandler(nullptr);
+
     if (scene == nullptr || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0 || scene->mRootNode == nullptr) {
         std::cerr << "[Model] Failed to load model with Assimp.\n"
                   << "  Path: " << modelPath << '\n'
                   << "  Assimp error: " << importer.GetErrorString() << '\n';
         loaded_ = false;
+        emitProgress(0.0f, "Load failed.");
         return;
     }
 
     directory_ = std::filesystem::path(modelPath).parent_path().string();
+    meshDone_ = 0;
+    meshTotal_ = std::max(1u, countMeshesUnderNode(scene->mRootNode));
+    emitProgress(0.36f, "Building GPU meshes...");
+
     processNode(scene->mRootNode, scene);
     loaded_ = !meshes_.empty();
 
     if (!loaded_) {
         std::cerr << "[Model] Model loaded but no mesh data was extracted.\n"
                   << "  Path: " << modelPath << '\n';
+        emitProgress(0.0f, "No mesh data extracted.");
     } else {
         std::cerr << "[Model] Loaded model successfully.\n"
                   << "  Path: " << modelPath << '\n'
                   << "  Mesh count: " << meshes_.size() << '\n';
+        emitProgress(0.85f, "Geometry upload complete.");
     }
 }
 
@@ -120,6 +186,15 @@ void Model::processNode(aiNode* node, const aiScene* scene)
     for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
         meshes_.push_back(processMesh(mesh, scene));
+
+        ++meshDone_;
+        if (progressCb_) {
+            const float unit = static_cast<float>(meshDone_) / static_cast<float>(meshTotal_);
+            const float progress = std::min(0.84f, 0.36f + 0.48f * unit);
+            if (meshDone_ == 1u || (meshDone_ % 2u) == 0u || meshDone_ == meshTotal_) {
+                emitProgress(progress, "Uploading mesh data to GPU...");
+            }
+        }
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
@@ -171,6 +246,23 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
         }
     }
 
+    if (!vertices.empty()) {
+        glm::vec3 meshMin = vertices[0].position;
+        glm::vec3 meshMax = vertices[0].position;
+        for (std::size_t vi = 1; vi < vertices.size(); ++vi) {
+            meshMin = glm::min(meshMin, vertices[vi].position);
+            meshMax = glm::max(meshMax, vertices[vi].position);
+        }
+        if (!localAabbValid_) {
+            localAabbMin_ = meshMin;
+            localAabbMax_ = meshMax;
+            localAabbValid_ = true;
+        } else {
+            localAabbMin_ = glm::min(localAabbMin_, meshMin);
+            localAabbMax_ = glm::max(localAabbMax_, meshMax);
+        }
+    }
+
     if (mesh->mMaterialIndex < scene->mNumMaterials && scene->mMaterials[mesh->mMaterialIndex] != nullptr) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
         aiColor3D diffuseColor(0.8f, 0.8f, 0.8f);
@@ -178,19 +270,15 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
             materialData.diffuse = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
         }
 
-        std::vector<TextureAsset> diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
+        auto diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
         textures.insert(textures.end(), diffuseTextures.begin(), diffuseTextures.end());
-
-        std::vector<TextureAsset> specularTextures = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
+        auto specularTextures = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
         textures.insert(textures.end(), specularTextures.begin(), specularTextures.end());
-
-        std::vector<TextureAsset> shininessTextures = loadMaterialTextures(material, aiTextureType_SHININESS, "texture_roughness", scene);
+        auto shininessTextures = loadMaterialTextures(material, aiTextureType_SHININESS, "texture_roughness", scene);
         textures.insert(textures.end(), shininessTextures.begin(), shininessTextures.end());
-
-        std::vector<TextureAsset> normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
+        auto normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());
-
-        std::vector<TextureAsset> heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);
+        auto heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);
         textures.insert(textures.end(), heightTextures.begin(), heightTextures.end());
     }
 

@@ -72,6 +72,10 @@ void Mesh::draw(const Shader& shader) const
     shader.setBool("uHasNormalMap", hasNormalTexture);
     shader.setVec3("uMaterialDiffuse", material_.diffuse);
     drawDirect();
+    for (unsigned int i = 0; i < textures_.size(); ++i) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
     glActiveTexture(GL_TEXTURE0);
 }
 

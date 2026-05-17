@@ -17,13 +17,20 @@ Application::Application(const AppConfig& cfg)
 #endif
 
     window_ = glfwCreateWindow(cfg_.width, cfg_.height, cfg_.title.c_str(), nullptr, nullptr);
-    if (!window_) { std::cerr << "[App] Window creation failed.\n"; glfwTerminate(); return; }
+    if (!window_) {
+        std::cerr << "[App] Window creation failed.\n";
+        glfwTerminate();
+        return;
+    }
 
     glfwMakeContextCurrent(window_);
 
     if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
         std::cerr << "[App] GLAD init failed.\n";
-        glfwDestroyWindow(window_); glfwTerminate(); window_ = nullptr; return;
+        glfwDestroyWindow(window_);
+        glfwTerminate();
+        window_ = nullptr;
+        return;
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -55,7 +62,9 @@ Application::Application(const AppConfig& cfg)
 
 Application::~Application()
 {
-    if (window_) { glfwDestroyWindow(window_); }
+    if (window_) {
+        glfwDestroyWindow(window_);
+    }
     glfwTerminate();
 }
 
@@ -76,16 +85,11 @@ void Application::run(std::function<void(float)> renderFn)
     }
 }
 
-// ===========================================================================
-// Input processing
-// ===========================================================================
-
 void Application::processInput()
 {
     if (glfwGetKey(window_, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
 
-    // ---- Camera mode toggle ----
     bool fNow = (glfwGetKey(window_, GLFW_KEY_F) == GLFW_PRESS);
     if (fNow && !fWasDown_) {
         camera_.SetMode(camera_.Mode == CameraMode::FirstPerson
@@ -94,13 +98,11 @@ void Application::processInput()
     }
     fWasDown_ = fNow;
 
-    // ---- WASD ----
     if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::FORWARD, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::BACKWARD, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::LEFT, deltaTime_);
     if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) camera_.ProcessKeyboard(Camera_Movement::RIGHT, deltaTime_);
 
-    // ---- Tab: sticky cursor lock ----
     bool tabNow = (glfwGetKey(window_, GLFW_KEY_TAB) == GLFW_PRESS);
     if (tabNow && !tabWasDown_) {
         cursorLocked_ = !cursorLocked_;
@@ -110,7 +112,6 @@ void Application::processInput()
     }
     tabWasDown_ = tabNow;
 
-    // ---- Left/Right click: temporary cursor capture for look/orbit ----
     bool leftHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     bool rightHeld = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     bool shouldCapture = leftHeld || rightHeld || cursorLocked_;
@@ -126,16 +127,11 @@ void Application::processInput()
         firstMouse_ = true;
     }
 
-    // ---- Scroll zoom ----
     if (scrollOffset_ != 0.0f) {
         camera_.ProcessZoom(scrollOffset_);
         scrollOffset_ = 0.0f;
     }
 }
-
-// ===========================================================================
-// GLFW callbacks — only cursor pos and scroll (keyboard is polled)
-// ===========================================================================
 
 void Application::cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -144,7 +140,12 @@ void Application::cursorPosCallback(GLFWwindow* window, double xpos, double ypos
 
     float x = static_cast<float>(xpos);
     float y = static_cast<float>(ypos);
-    if (app->firstMouse_) { app->lastMouseX_ = x; app->lastMouseY_ = y; app->firstMouse_ = false; return; }
+    if (app->firstMouse_) {
+        app->lastMouseX_ = x;
+        app->lastMouseY_ = y;
+        app->firstMouse_ = false;
+        return;
+    }
 
     float dx = x - app->lastMouseX_;
     float dy = y - app->lastMouseY_;
