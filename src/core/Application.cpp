@@ -15,6 +15,7 @@ Application::Application(const AppConfig& cfg)
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
+    glfwWindowHint(GLFW_SAMPLES, 2);
 
     window_ = glfwCreateWindow(cfg_.width, cfg_.height, cfg_.title.c_str(), nullptr, nullptr);
     if (!window_) {
@@ -34,6 +35,7 @@ Application::Application(const AppConfig& cfg)
     }
 
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
     glViewport(0, 0, cfg_.width, cfg_.height);
 
     camera_.MovementSpeed = cfg_.cameraSpeed;
@@ -52,11 +54,12 @@ Application::Application(const AppConfig& cfg)
 
     std::cout << "========================================\n"
               << "  Left/Right drag : look / orbit\n"
-              << "  WASD            : move (FPS) / pan (orbit)\n"
+              << "  WASD            : move (FPS) / pan target (orbit)\n"
               << "  F               : toggle FPS / Orbit camera\n"
               << "  Tab             : lock cursor (FPS)\n"
               << "  Scroll          : zoom\n"
               << "  Esc             : exit\n"
+              << "  (Startup: orbit camera is fitted to the model bounds.)\n"
               << "========================================\n";
 }
 
@@ -77,8 +80,6 @@ void Application::run(std::function<void(float)> renderFn)
         deltaTime_ = now - lastFrame_;
         lastFrame_ = now;
         processInput();
-        glClearColor(0.08f, 0.08f, 0.10f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         renderFn(deltaTime_);
         glfwSwapBuffers(window_);
         glfwPollEvents();

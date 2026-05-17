@@ -4,6 +4,8 @@
 
 #include <assimp/scene.h>
 #include <glm/glm.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 
 #include <functional>
 #include <string>
@@ -15,8 +17,8 @@ public:
     using LoadProgressCallback = std::function<void(float normalized, const char* status)>;
 
     explicit Model(const std::string& modelPath,
-                     const std::string& fallbackDiffuseTexturePath = std::string{},
-                     LoadProgressCallback onProgress = {});
+                   const std::string& fallbackDiffuseTexturePath = std::string{},
+                   LoadProgressCallback onProgress = {});
     ~Model();
 
     Model(const Model&) = delete;
@@ -26,12 +28,15 @@ public:
 
     bool isLoaded() const noexcept { return loaded_; }
     void draw(const Shader& shader) const;
+    void drawGeometryOnly() const;
+
     void createVertexArraysForCurrentContext();
     void releaseVertexArraysForCurrentContext();
 
     bool hasLocalAabb() const noexcept { return localAabbValid_; }
     const glm::vec3& localAabbMin() const noexcept { return localAabbMin_; }
     const glm::vec3& localAabbMax() const noexcept { return localAabbMax_; }
+    void worldBounds(const glm::mat4& modelMatrix, glm::vec3& outMin, glm::vec3& outMax) const;
 
 private:
     std::vector<Mesh> meshes_;

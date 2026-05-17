@@ -113,6 +113,8 @@ add_executable(ClassroomRenderer
     src/collision/DebugAabbDrawer.h
     src/render/Renderer.cpp
     src/render/Renderer.h
+    src/render/ShadowMap.cpp
+    src/render/ShadowMap.h
     src/render/Material.h
     src/render/Shader.cpp
     src/render/Shader.h

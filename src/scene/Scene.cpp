@@ -3,8 +3,9 @@
 
 #include <algorithm>
 #include <iostream>
+#include <limits>
 
-void Scene::loadAll(const std::string& fallbackTex,
+void Scene::loadAll(const std::string& fallbackTexturePath,
                     const std::function<void(float, const char*)>& onProgress)
 {
     size_t pendingCount = 0;
@@ -38,7 +39,7 @@ void Scene::loadAll(const std::string& fallbackTex,
             onProgress(std::min(1.0f, global), msg);
         };
 
-        auto model = std::make_unique<Model>(entry.path, fallbackTex, scaledProgress);
+        auto model = std::make_unique<Model>(entry.path, fallbackTexturePath, scaledProgress);
         if (!model->isLoaded()) {
             std::cerr << "[Scene] Failed: " << entry.name << " (" << entry.path << ")\n";
             continue;
@@ -51,13 +52,20 @@ void Scene::loadAll(const std::string& fallbackTex,
     }
 }
 
-void Scene::drawAll(Shader& shader) const
+void Scene::drawAll(Shader& shader, bool geometryOnly) const
 {
     for (const auto& entry : entries_) {
         auto it = modelCache_.find(entry.path);
-        if (it == modelCache_.end() || !it->second->isLoaded()) continue;
+        if (it == modelCache_.end() || !it->second->isLoaded()) {
+            continue;
+        }
+
         shader.setMat4("uModel", entry.transform.matrix());
-        it->second->draw(shader);
+        if (geometryOnly) {
+            it->second->drawGeometryOnly();
+        } else {
+            it->second->draw(shader);
+        }
     }
 }
 
@@ -89,6 +97,7 @@ std::vector<NamedAABB> Scene::namedWorldAABBs() const
         if (it == modelCache_.end() || !it->second->isLoaded() || !it->second->hasLocalAabb()) {
             continue;
         }
+
         const AABB world = AABB::fromLocalWithTransform(
             it->second->localAabbMin(),
             it->second->localAabbMax(),
@@ -96,4 +105,33 @@ std::vector<NamedAABB> Scene::namedWorldAABBs() const
         out.push_back({entry.name, world});
     }
     return out;
+}
+
+bool Scene::computeWorldBounds(glm::vec3& outMin, glm::vec3& outMax) const
+{
+    glm::vec3 mn(std::numeric_limits<float>::max());
+    glm::vec3 mx(std::numeric_limits<float>::lowest());
+    bool any = false;
+
+    for (const auto& entry : entries_) {
+        auto it = modelCache_.find(entry.path);
+        if (it == modelCache_.end() || !it->second->isLoaded()) {
+            continue;
+        }
+
+        glm::vec3 localMin;
+        glm::vec3 localMax;
+        it->second->worldBounds(entry.transform.matrix(), localMin, localMax);
+        mn = glm::min(mn, localMin);
+        mx = glm::max(mx, localMax);
+        any = true;
+    }
+
+    if (!any) {
+        return false;
+    }
+
+    outMin = mn;
+    outMax = mx;
+    return true;
 }

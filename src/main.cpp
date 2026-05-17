@@ -16,19 +16,32 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
 
+#include <glm/geometric.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 namespace {
+
+struct LightingState {
+    bool isDay = true;
+    bool pointLightsOn = false;
+    bool key1WasDown = false;
+    bool key2WasDown = false;
+    bool keyOWasDown = false;
+    bool keyCWasDown = false;
+};
 
 void restoreGlStateForScene(GLFWwindow* window)
 {
-    int w = 0, h = 0;
+    int w = 0;
+    int h = 0;
     glfwGetFramebufferSize(window, &w, &h);
     if (w > 0 && h > 0) {
         glViewport(0, 0, w, h);
     }
+
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_DEPTH_TEST);
@@ -53,14 +66,17 @@ std::string resolvePath(const std::vector<std::string>& candidates)
 
     for (const auto& candidate : candidates) {
         std::filesystem::path path(candidate);
-        if (path.is_absolute() && std::filesystem::exists(path))
+        if (path.is_absolute() && std::filesystem::exists(path)) {
             return std::filesystem::weakly_canonical(path).string();
+        }
     }
+
     for (const auto& root : roots) {
         for (const auto& candidate : candidates) {
-            auto full = root / candidate;
-            if (std::filesystem::exists(full))
+            const auto full = root / candidate;
+            if (std::filesystem::exists(full)) {
                 return std::filesystem::weakly_canonical(full).string();
+            }
         }
     }
     return {};
@@ -82,7 +98,8 @@ bool intersectsAny(const AABB& box, const std::vector<NamedAABB>& colliders)
     return false;
 }
 
-void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition, const std::vector<NamedAABB>& colliders)
+void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
+                            const std::vector<NamedAABB>& colliders)
 {
     if (colliders.empty() || !intersectsAny(cameraBodyAabb(camera.Position), colliders)) {
         return;
@@ -109,6 +126,72 @@ void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition, c
     camera.Position = candidate;
 }
 
+void handleLightingHotkeys(GLFWwindow* window, LightingState& lighting)
+{
+    const bool key1 = glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS;
+    const bool key2 = glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS;
+    const bool keyO = glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS;
+    const bool keyC = glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS;
+
+    if (key1 && !lighting.key1WasDown) {
+        lighting.isDay = true;
+    }
+    if (key2 && !lighting.key2WasDown) {
+        lighting.isDay = false;
+    }
+
+    if (!lighting.isDay) {
+        if (keyO && !lighting.keyOWasDown) {
+            lighting.pointLightsOn = true;
+        }
+        if (keyC && !lighting.keyCWasDown) {
+            lighting.pointLightsOn = false;
+        }
+    }
+
+    lighting.key1WasDown = key1;
+    lighting.key2WasDown = key2;
+    lighting.keyOWasDown = keyO;
+    lighting.keyCWasDown = keyC;
+}
+
+void syncLightingUniforms(Shader& shader, Renderer& renderer, const Camera& camera,
+                          const LightingState& lighting)
+{
+    shader.use();
+    if (lighting.isDay) {
+        renderer.setDirectionalShadowsEnabled(true);
+        shader.setFloat("uExposure", 1.0f);
+        shader.setVec3("dirLight.ambient", glm::vec3(0.10f, 0.105f, 0.12f));
+        shader.setVec3("dirLight.diffuse", glm::vec3(0.88f, 0.82f, 0.68f));
+        shader.setVec3("dirLight.specular", glm::vec3(0.22f, 0.20f, 0.18f));
+        shader.setInt("uPointLightsOn", 0);
+    } else {
+        renderer.setDirectionalShadowsEnabled(false);
+        shader.setFloat("uExposure", 1.12f);
+        shader.setVec3("dirLight.ambient", glm::vec3(0.02f, 0.02f, 0.05f));
+        shader.setVec3("dirLight.diffuse", glm::vec3(0.05f, 0.05f, 0.10f));
+        shader.setVec3("dirLight.specular", glm::vec3(0.10f, 0.10f, 0.10f));
+        shader.setInt("uPointLightsOn", lighting.pointLightsOn ? 1 : 0);
+    }
+
+    shader.setVec3("spotLight.position", camera.Position);
+    shader.setVec3("spotLight.direction", camera.Front);
+    shader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
+    shader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(17.5f)));
+    shader.setFloat("spotLight.constant", 1.0f);
+    shader.setFloat("spotLight.linear", 0.045f);
+    shader.setFloat("spotLight.quadratic", 0.015f);
+    shader.setVec3("spotLight.ambient", glm::vec3(0.0f));
+    if (lighting.isDay) {
+        shader.setVec3("spotLight.diffuse", glm::vec3(0.0f));
+        shader.setVec3("spotLight.specular", glm::vec3(0.0f));
+    } else {
+        shader.setVec3("spotLight.diffuse", glm::vec3(0.78f, 0.76f, 0.82f));
+        shader.setVec3("spotLight.specular", glm::vec3(0.58f, 0.56f, 0.60f));
+    }
+}
+
 void shutdownImGui()
 {
     ImGui_ImplOpenGL3_Shutdown();
@@ -128,6 +211,7 @@ int main()
     appCfg.cameraFov = 45.0f;
     appCfg.cameraSpeed = 5.0f;
     appCfg.cameraSensitivity = 0.15f;
+
     Application app(appCfg);
     if (!app.window()) {
         return -1;
@@ -143,35 +227,25 @@ int main()
 
     const std::string vertPath = resolvePath({"shaders/model.vert"});
     const std::string fragPath = resolvePath({"shaders/model.frag"});
-    if (vertPath.empty() || fragPath.empty()) {
-        std::cerr << "Shader files not found.\n";
+    const std::string depthVertPath = resolvePath({"shaders/depth.vert"});
+    const std::string depthFragPath = resolvePath({"shaders/depth.frag"});
+    const std::string dbgVert = resolvePath({"shaders/debug_line.vert"});
+    const std::string dbgFrag = resolvePath({"shaders/debug_line.frag"});
+    if (vertPath.empty() || fragPath.empty() || depthVertPath.empty() || depthFragPath.empty()
+        || dbgVert.empty() || dbgFrag.empty()) {
+        std::cerr << "Required shader files not found.\n";
         shutdownImGui();
         return -1;
     }
 
     Shader shader(vertPath.c_str(), fragPath.c_str());
-    if (!shader.isValid()) {
+    Shader depthShader(depthVertPath.c_str(), depthFragPath.c_str());
+    DebugAabbDrawer debugDrawer(Shader(dbgVert.c_str(), dbgFrag.c_str()));
+    if (!shader.isValid() || !depthShader.isValid() || !debugDrawer.shader().isValid()) {
         std::cerr << "Shader compilation failed.\n";
         shutdownImGui();
         return -1;
     }
-
-    const std::string dbgVert = resolvePath({"shaders/debug_line.vert"});
-    const std::string dbgFrag = resolvePath({"shaders/debug_line.frag"});
-    if (dbgVert.empty() || dbgFrag.empty()) {
-        std::cerr << "Debug line shader files not found.\n";
-        shutdownImGui();
-        return -1;
-    }
-
-    DebugAabbDrawer debugDrawer(Shader(dbgVert.c_str(), dbgFrag.c_str()));
-    if (!debugDrawer.shader().isValid()) {
-        std::cerr << "Debug line shader compilation failed.\n";
-        shutdownImGui();
-        return -1;
-    }
-
-    Scene scene;
 
     const std::string fallbackTex = resolvePath({
         "resources/textures/Wood066_1K-PNG_Color.png",
@@ -180,9 +254,11 @@ int main()
 
     const std::string modelPath = resolvePath({
         "resources/models/Tsukinomori.obj",
+        "resources/models/Tsukinomori.fbx",
         "resources/models/model.fbx",
     });
 
+    Scene scene;
     if (!modelPath.empty()) {
         scene.addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
     }
@@ -193,10 +269,8 @@ int main()
         return -1;
     }
 
-    std::cout << "[Main] Loading " << scene.entries().size() << " model(s)...\n";
     std::string loadStageText = "Preparing...";
     float loadOverall = 0.0f;
-
     const auto pumpLoadUi = [&](float normalized, const char* status) {
         if (status != nullptr) {
             loadStageText = status;
@@ -215,8 +289,8 @@ int main()
             ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
             ImGui::SetNextWindowSize(loadIo.DisplaySize);
             ImGui::Begin("##loading_overlay", nullptr,
-                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
-                              | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
+                             | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
             ImGui::TextUnformatted("Classroom Renderer");
             ImGui::Separator();
             ImGui::TextUnformatted("Loading assets - large models may take one to two minutes.");
@@ -232,12 +306,21 @@ int main()
         glfwPollEvents();
     };
 
+    std::cout << "[Main] Loading " << scene.entries().size() << " model(s)...\n";
     scene.loadAll(fallbackTex, pumpLoadUi);
 
-    Renderer renderer(shader, app.camera());
-    renderer.setLightDirection(glm::vec3(-0.8f, -1.0f, -0.3f));
-    renderer.setFallbackColor(glm::vec3(0.8f, 0.8f, 0.8f));
+    glm::vec3 bmin;
+    glm::vec3 bmax;
+    if (scene.computeWorldBounds(bmin, bmax)) {
+        const glm::vec3 center = 0.5f * (bmin + bmax);
+        const float radius = 0.5f * glm::length(bmax - bmin);
+        app.camera().fitOrbitAroundCenter(center, radius);
+    }
 
+    Renderer renderer(shader, depthShader, app.camera());
+    renderer.setLightDirection(glm::normalize(glm::vec3(-0.52f, 0.40f, 0.58f)));
+
+    LightingState lighting;
     bool showDemoColliders = true;
     bool useSceneEntryAABBs = false;
     bool collisionEnabled = false;
@@ -247,6 +330,14 @@ int main()
     glm::vec3 lastCameraPosition = app.camera().Position;
 
     app.run([&](float /*dt*/) {
+        handleLightingHotkeys(app.window(), lighting);
+
+        if (lighting.isDay) {
+            glClearColor(0.52f, 0.74f, 0.93f, 1.0f);
+        } else {
+            glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
+        }
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         restoreGlStateForScene(app.window());
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -255,6 +346,11 @@ int main()
 
         ImGui::Begin("Interaction & collision");
         ImGui::Text("FPS: %.1f", static_cast<double>(io.Framerate));
+        ImGui::Separator();
+        ImGui::Text("Lighting: %s", lighting.isDay ? "Day" : "Night");
+        ImGui::Text("Classroom point lights: %s",
+                    (!lighting.isDay && lighting.pointLightsOn) ? "On" : "Off");
+        ImGui::TextUnformatted("Keys: 1 Day, 2 Night, O Open lights, C Close lights");
         ImGui::Separator();
         ImGui::Checkbox("Enable FPS collision", &collisionEnabled);
         ImGui::Checkbox("Draw collider AABBs", &drawColliders);
@@ -287,12 +383,16 @@ int main()
         }
         lastCameraPosition = cam.Position;
 
+        syncLightingUniforms(shader, renderer, cam, lighting);
         renderer.render(scene);
 
         if (drawColliders && !colliders.empty()) {
-            int w = 0, h = 0;
+            int w = 0;
+            int h = 0;
             glfwGetFramebufferSize(app.window(), &w, &h);
-            if (h <= 0) h = 1;
+            if (h <= 0) {
+                h = 1;
+            }
             const glm::mat4 proj = glm::perspective(
                 glm::radians(cam.Zoom),
                 static_cast<float>(w) / static_cast<float>(h), 0.1f, 300.0f);

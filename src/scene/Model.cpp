@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <unordered_set>
 
@@ -86,8 +87,8 @@ Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTex
     : progressCb_(std::move(onProgress))
 {
     loadModel(modelPath);
-    (void)fallbackDiffuseTexturePath;
     if (loaded_) {
+        applyFallbackDiffuseTexture(fallbackDiffuseTexturePath);
         emitProgress(1.0f, "Model ready.");
     }
 }
@@ -108,6 +109,13 @@ void Model::emitProgress(float normalized, const char* status)
         return;
     }
     progressCb_(std::clamp(normalized, 0.0f, 1.0f), status ? status : "");
+}
+
+void Model::drawGeometryOnly() const
+{
+    for (const Mesh& mesh : meshes_) {
+        mesh.drawDirect();
+    }
 }
 
 void Model::draw(const Shader& shader) const
@@ -148,7 +156,8 @@ void Model::loadModel(const std::string& modelPath)
             | aiProcess_CalcTangentSpace
             | aiProcess_GenSmoothNormals
             | aiProcess_JoinIdenticalVertices
-            | aiProcess_ImproveCacheLocality);
+            | aiProcess_ImproveCacheLocality
+            | aiProcess_FixInfacingNormals);
 
     importer.SetProgressHandler(nullptr);
 
@@ -213,7 +222,6 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
     indices.reserve(mesh->mNumFaces * 3);
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         Vertex vertex;
-
         vertex.position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
 
         if (mesh->HasNormals()) {
@@ -297,7 +305,6 @@ std::vector<TextureAsset> Model::loadMaterialTextures(aiMaterial* material, aiTe
         }
 
         std::string rawPath = extractTexturePathToken(aiPath.C_Str());
-
         const aiTexture* embeddedTexture = scene ? scene->GetEmbeddedTexture(rawPath.c_str()) : nullptr;
         if (embeddedTexture != nullptr) {
             const std::string cacheKey = makeEmbeddedTextureKey(rawPath);
@@ -404,16 +411,21 @@ void Model::applyFallbackDiffuseTexture(const std::string& fallbackDiffuseTextur
         return;
     }
 
-    std::filesystem::path fallbackPath(fallbackDiffuseTexturePath);
-    if (!fallbackPath.is_absolute()) {
-        fallbackPath = std::filesystem::current_path() / fallbackPath;
+    const std::string normalizedFallback = normalizePathString(fallbackDiffuseTexturePath);
+    const std::string cacheKey = makeFileTextureKey(normalizedFallback);
+    GLuint textureId = 0;
+    auto cached = textureCache_.find(cacheKey);
+    if (cached != textureCache_.end()) {
+        textureId = cached->second;
+    } else {
+        textureId = loadTexture2DFromFile(normalizedFallback);
+        if (textureId != 0) {
+            textureCache_[cacheKey] = textureId;
+            loadedTextures_.push_back(TextureAsset{textureId, "texture_diffuse", normalizedFallback});
+        }
     }
 
-    const std::string normalizedFallback = normalizePathString(fallbackPath);
-    const GLuint textureId = loadTexture2DFromFile(normalizedFallback);
     if (textureId == 0) {
-        std::cerr << "[Model] Fallback texture could not be loaded.\n"
-                  << "  Path: " << normalizedFallback << '\n';
         return;
     }
 
@@ -421,6 +433,13 @@ void Model::applyFallbackDiffuseTexture(const std::string& fallbackDiffuseTextur
     for (Mesh& mesh : meshes_) {
         mesh.attachTextureIfMissing(fallbackTexture);
     }
+}
 
-    loadedTextures_.push_back(fallbackTexture);
+void Model::worldBounds(const glm::mat4& modelMatrix, glm::vec3& outMin, glm::vec3& outMax) const
+{
+    outMin = glm::vec3(std::numeric_limits<float>::max());
+    outMax = glm::vec3(std::numeric_limits<float>::lowest());
+    for (const Mesh& mesh : meshes_) {
+        mesh.accumulateWorldBounds(modelMatrix, outMin, outMax);
+    }
 }
