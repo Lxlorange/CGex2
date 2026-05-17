@@ -115,6 +115,9 @@ int main()
         sceneToLoad->loadAll(fallbackTex);
         sceneToLoad->releaseVertexArraysForCurrentContext();
 
+        // Flush all pending GL commands so textures are visible to the main context
+        glFinish();
+
         glfwMakeContextCurrent(nullptr);
 
         {
@@ -127,8 +130,25 @@ int main()
 
     Scene* activeScene = nullptr;
     bool sceneActivated = false;
+    bool lWasDown = false;
+    bool nWasDown = false;
 
     app.run([&](float /*dt*/) {
+        // ---- L key: toggle light ----
+        bool lNow = (glfwGetKey(app.window(), GLFW_KEY_L) == GLFW_PRESS);
+        if (lNow && !lWasDown) {
+            renderer.toggleLight();
+            std::cout << "[Main] Light " << (renderer.isLightOn() ? "ON" : "OFF") << "\n";
+        }
+        lWasDown = lNow;
+
+        // ---- N key: toggle day/night ----
+        bool nNow = (glfwGetKey(app.window(), GLFW_KEY_N) == GLFW_PRESS);
+        if (nNow && !nWasDown) {
+            renderer.toggleDayNight();
+        }
+        nWasDown = nNow;
+
         if (loadDone.load(std::memory_order_acquire) && !sceneActivated) {
             std::lock_guard<std::mutex> lock(loadedSceneMutex);
             if (!loadFailed.load(std::memory_order_acquire) && loadedScene) {

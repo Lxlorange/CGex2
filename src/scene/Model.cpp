@@ -48,7 +48,9 @@ std::string makeFileTextureKey(const std::string& normalizedPath)
 Model::Model(const std::string& modelPath, const std::string& fallbackDiffuseTexturePath)
 {
     loadModel(modelPath);
-    (void)fallbackDiffuseTexturePath;
+    if (!fallbackDiffuseTexturePath.empty()) {
+        applyFallbackDiffuseTexture(fallbackDiffuseTexturePath);
+    }
 }
 
 Model::~Model()
@@ -176,6 +178,24 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
         aiColor3D diffuseColor(0.8f, 0.8f, 0.8f);
         if (material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) == AI_SUCCESS) {
             materialData.diffuse = glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        }
+
+        aiColor3D emissiveColor(0.0f, 0.0f, 0.0f);
+        if (material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor) == AI_SUCCESS) {
+            materialData.emissive = glm::vec3(emissiveColor.r, emissiveColor.g, emissiveColor.b);
+        }
+
+        // Auto-assign emissive for light-related materials that lack Ke in MTL
+        aiString matName;
+        if (material->Get(AI_MATKEY_NAME, matName) == AI_SUCCESS) {
+            std::string name(matName.C_Str());
+            float maxEmissive = materialData.emissive.r + materialData.emissive.g + materialData.emissive.b;
+            if (maxEmissive < 0.01f) {
+                if (name.find("灯") != std::string::npos ||
+                    name.find("发光") != std::string::npos) {
+                    materialData.emissive = glm::vec3(2.0f, 1.8f, 1.0f);
+                }
+            }
         }
 
         std::vector<TextureAsset> diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);

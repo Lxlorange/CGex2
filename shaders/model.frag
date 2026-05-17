@@ -14,8 +14,12 @@ uniform bool uHasNormalMap;
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal1;
 uniform vec3 uMaterialDiffuse;
+uniform vec3 uMaterialEmissive;
 uniform vec3 uLightDirection;
 uniform vec3 uViewPosition;
+uniform bool uLightOn;
+uniform float uAmbientStrength;
+uniform vec3 uAmbientColor;
 
 void main()
 {
@@ -29,16 +33,21 @@ void main()
         vec3 tangentNormal = texture(texture_normal1, fsIn.texCoord).xyz * 2.0 - 1.0;
         N = normalize(fsIn.tbn * tangentNormal);
     }
-    vec3 L = normalize(-uLightDirection);
-    float diffuseFactor = max(dot(N, L), 0.0);
 
-    vec3 ambient = 0.25 * baseColor;
-    vec3 diffuse = diffuseFactor * baseColor;
+    vec3 ambient = uAmbientStrength * uAmbientColor * baseColor;
 
-    vec3 V = normalize(uViewPosition - fsIn.worldPos);
-    vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), 32.0);
-    vec3 specular = vec3(0.2) * spec;
+    if (uLightOn) {
+        vec3 L = normalize(-uLightDirection);
+        float diffuseFactor = max(dot(N, L), 0.0);
+        vec3 diffuse = diffuseFactor * baseColor;
 
-    FragColor = vec4(ambient + diffuse + specular, 1.0);
+        vec3 V = normalize(uViewPosition - fsIn.worldPos);
+        vec3 H = normalize(L + V);
+        float spec = pow(max(dot(N, H), 0.0), 32.0);
+        vec3 specular = vec3(0.2) * spec;
+
+        FragColor = vec4(ambient + diffuse + specular + uMaterialEmissive, 1.0);
+    } else {
+        FragColor = vec4(ambient, 1.0);
+    }
 }

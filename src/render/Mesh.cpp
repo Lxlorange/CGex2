@@ -71,6 +71,7 @@ void Mesh::draw(const Shader& shader) const
     shader.setBool("uHasTexture", hasDiffuseTexture);
     shader.setBool("uHasNormalMap", hasNormalTexture);
     shader.setVec3("uMaterialDiffuse", material_.diffuse);
+    shader.setVec3("uMaterialEmissive", material_.emissive);
     drawDirect();
     glActiveTexture(GL_TEXTURE0);
 }

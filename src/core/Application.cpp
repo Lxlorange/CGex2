@@ -47,6 +47,8 @@ Application::Application(const AppConfig& cfg)
               << "  Left/Right drag : look / orbit\n"
               << "  WASD            : move (FPS) / pan (orbit)\n"
               << "  F               : toggle FPS / Orbit camera\n"
+              << "  L               : turn on/off the light\n"
+              << "  N               : Day/Night mode\n"
               << "  Tab             : lock cursor (FPS)\n"
               << "  Scroll          : zoom\n"
               << "  Esc             : exit\n"
