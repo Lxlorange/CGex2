@@ -113,6 +113,8 @@ add_executable(ClassroomRenderer
     src/collision/DebugAabbDrawer.h
     src/render/Renderer.cpp
     src/render/Renderer.h
+    src/render/LightManager.cpp
+    src/render/LightManager.h
     src/render/ShadowMap.cpp
     src/render/ShadowMap.h
     src/render/Material.h
@@ -130,6 +132,7 @@ add_executable(ClassroomRenderer
 
 target_include_directories(ClassroomRenderer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${THIRD_PARTY_DIR}"
     "${THIRD_PARTY_DIR}/glm"
     "${STB_ROOT}"
 )

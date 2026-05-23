@@ -9,6 +9,7 @@
 #include "collision/DebugAabbDrawer.h"
 #include "core/Application.h"
 #include "core/Camera.h"
+#include "render/LightManager.h"
 #include "render/Renderer.h"
 #include "render/Shader.h"
 #include "scene/Scene.h"
@@ -26,7 +27,7 @@ namespace {
 
 struct LightingState {
     bool isDay = true;
-    bool pointLightsOn = false;
+    bool pointLightsOn = true;
     bool key1WasDown = false;
     bool key2WasDown = false;
     bool keyOWasDown = false;
@@ -159,14 +160,14 @@ void syncLightingUniforms(Shader& shader, Renderer& renderer, const Camera& came
     shader.use();
     if (lighting.isDay) {
         renderer.setDirectionalShadowsEnabled(true);
-        shader.setFloat("uExposure", 1.0f);
+        shader.setFloat("uExposure", 0.88f);
         shader.setVec3("dirLight.ambient", glm::vec3(0.10f, 0.105f, 0.12f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.88f, 0.82f, 0.68f));
         shader.setVec3("dirLight.specular", glm::vec3(0.22f, 0.20f, 0.18f));
-        shader.setInt("uPointLightsOn", 0);
+        shader.setInt("uPointLightsOn", 1);
     } else {
         renderer.setDirectionalShadowsEnabled(false);
-        shader.setFloat("uExposure", 1.12f);
+        shader.setFloat("uExposure", 0.94f);
         shader.setVec3("dirLight.ambient", glm::vec3(0.02f, 0.02f, 0.05f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.05f, 0.05f, 0.10f));
         shader.setVec3("dirLight.specular", glm::vec3(0.10f, 0.10f, 0.10f));
@@ -229,6 +230,7 @@ int main()
     const std::string depthFragPath = resolvePath({"shaders/depth.frag"});
     const std::string dbgVert = resolvePath({"shaders/debug_line.vert"});
     const std::string dbgFrag = resolvePath({"shaders/debug_line.frag"});
+    const std::string lightingConfigPath = resolvePath({"resources/config/lighting_config.json"});
     if (vertPath.empty() || fragPath.empty() || depthVertPath.empty() || depthFragPath.empty()
         || dbgVert.empty() || dbgFrag.empty()) {
         std::cerr << "Required shader files not found.\n";
@@ -243,6 +245,11 @@ int main()
         std::cerr << "Shader compilation failed.\n";
         shutdownImGui();
         return -1;
+    }
+
+    LightManager lightManager;
+    if (lightingConfigPath.empty() || !lightManager.loadConfig(lightingConfigPath)) {
+        std::cerr << "[Light] Using built-in fallback lighting values.\n";
     }
 
     const std::string modelPath = resolvePath({
@@ -314,7 +321,8 @@ int main()
     }
 
     Renderer renderer(shader, depthShader, app.camera());
-    renderer.setLightDirection(glm::normalize(glm::vec3(-0.52f, 0.40f, 0.58f)));
+    renderer.setLightManager(&lightManager);
+    renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
 
     LightingState lighting;
     bool showDemoColliders = false;
@@ -359,6 +367,43 @@ int main()
             "Scene AABBs are generated per mesh, so debug lines and collision use finer model bounds.");
         ImGui::End();
 
+        ImGui::Begin("Lighting Control");
+        ImGui::ColorEdit3("Global ambient", &lightManager.globalAmbient[0]);
+        ImGui::SliderFloat("Directional strength", &lightManager.directionalStrength, 0.5f, 4.0f);
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Directional light", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat3("Direction", &lightManager.sunLight.direction[0], 0.02f, -1.0f, 1.0f);
+            ImGui::ColorEdit3("Sun ambient", &lightManager.sunLight.ambient[0]);
+            ImGui::ColorEdit3("Sun diffuse", &lightManager.sunLight.diffuse[0]);
+            ImGui::ColorEdit3("Sun specular", &lightManager.sunLight.specular[0]);
+        }
+        if (ImGui::CollapsingHeader("Point lights", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (size_t i = 0; i < lightManager.pointLights.size(); ++i) {
+                const std::string& lightName = lightManager.pointLights[i].name;
+                std::string label = lightName.empty()
+                    ? "Light #" + std::to_string(i)
+                    : lightName + "##light_" + std::to_string(i);
+                if (ImGui::TreeNode(label.c_str())) {
+                    PointLight& light = lightManager.pointLights[i];
+                    ImGui::DragFloat3("Position", &light.position[0], 0.1f);
+                    ImGui::ColorEdit3("Color", &light.color[0]);
+                    const float previousIntensity = light.intensity;
+                    if (ImGui::SliderFloat("Intensity", &light.intensity, 0.0f, 10.0f)
+                        && previousIntensity > 0.0001f) {
+                        light.color *= light.intensity / previousIntensity;
+                    }
+                    ImGui::DragFloat("Constant", &light.constant, 0.01f, 0.0f, 4.0f);
+                    ImGui::DragFloat("Linear", &light.linear, 0.005f, 0.0f, 1.0f);
+                    ImGui::DragFloat("Quadratic", &light.quadratic, 0.005f, 0.0f, 1.0f);
+                    ImGui::TreePop();
+                }
+            }
+        }
+        if (ImGui::Button("Save lighting config", ImVec2(-1.0f, 40.0f)) && !lightingConfigPath.empty()) {
+            lightManager.saveConfig(lightingConfigPath);
+        }
+        ImGui::End();
+
         if (showImGuiDemo) {
             ImGui::ShowDemoWindow(&showImGuiDemo);
         }
@@ -378,6 +423,7 @@ int main()
         }
         lastCameraPosition = cam.Position;
 
+        renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
         syncLightingUniforms(shader, renderer, cam, lighting);
         renderer.render(scene);
 

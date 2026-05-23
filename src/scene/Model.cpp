@@ -457,6 +457,20 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
         aiColor3D emissiveColor(0.0f, 0.0f, 0.0f);
         if (material->Get(AI_MATKEY_COLOR_EMISSIVE, emissiveColor) == AI_SUCCESS) {
             materialData.emissive = glm::vec3(emissiveColor.r, emissiveColor.g, emissiveColor.b);
+            if (glm::dot(materialData.emissive, materialData.emissive) > 0.0f) {
+                std::cerr << "[Model] Emissive color: " << materialName
+                          << " = (" << materialData.emissive.r << ", "
+                          << materialData.emissive.g << ", "
+                          << materialData.emissive.b << ")\n";
+            }
+        }
+        float emissiveIntensity = 1.0f;
+        if (material->Get(AI_MATKEY_EMISSIVE_INTENSITY, emissiveIntensity) == AI_SUCCESS) {
+            materialData.emissive *= emissiveIntensity;
+            if (emissiveIntensity != 1.0f) {
+                std::cerr << "[Model] Emissive intensity: " << materialName
+                          << " = " << emissiveIntensity << '\n';
+            }
         }
 
         auto diffuseTextures = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
@@ -465,6 +479,8 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
         textures.insert(textures.end(), specularTextures.begin(), specularTextures.end());
         auto shininessTextures = loadMaterialTextures(material, aiTextureType_SHININESS, "texture_roughness", scene);
         textures.insert(textures.end(), shininessTextures.begin(), shininessTextures.end());
+        auto emissiveTextures = loadMaterialTextures(material, aiTextureType_EMISSIVE, "texture_emissive", scene);
+        textures.insert(textures.end(), emissiveTextures.begin(), emissiveTextures.end());
         auto normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());
         auto heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);

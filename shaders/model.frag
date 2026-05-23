@@ -11,12 +11,10 @@ struct DirLight {
 
 struct PointLight {
     vec3 position;
+    vec3 color;
     float constant;
     float linear;
     float quadratic;
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
 };
 
 struct SpotLight {
@@ -33,11 +31,13 @@ struct SpotLight {
 };
 
 uniform DirLight dirLight;
-#define NR_POINT_LIGHTS 4
-uniform PointLight pointLights[NR_POINT_LIGHTS];
+#define MAX_POINT_LIGHTS 10
+uniform PointLight pointLights[MAX_POINT_LIGHTS];
+uniform int numPointLights;
 uniform SpotLight spotLight;
 
 uniform int uPointLightsOn;
+uniform vec3 globalAmbient;
 
 uniform sampler2D shadowMap;
 uniform int uUseDirectionalShadow;
@@ -57,19 +57,17 @@ in VS_OUT {
 
 uniform bool uHasTexture;
 uniform bool uHasNormalMap;
+uniform bool uHasEmissiveMap;
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal1;
+uniform sampler2D texture_emissive1;
 uniform vec3 uMaterialDiffuse;
 uniform float uMaterialAlpha;
 uniform vec3 uMaterialEmissive;
-uniform vec3 uLightDirection;
 uniform vec3 uViewPosition;
-uniform bool uLightOn;
-uniform float uAmbientStrength;
-uniform vec3 uAmbientColor;
 
 const float kShininess = 48.0;
-const vec3 kSpecularAlbedo = vec3(0.055);
+const vec3 kSpecularAlbedo = vec3(0.045);
 
 float attenuationPoly(float distance, float c, float kl, float kq)
 {
@@ -105,16 +103,16 @@ float directionalShadow(vec4 fragPosLightSpace, vec3 norm, vec3 lightDirToSun)
     }
 
     float ndotl = abs(dot(norm, lightDirToSun));
-    float bias = max(0.0045 * (1.0 - ndotl), 0.0025);
+    float bias = max(0.0020 * (1.0 - ndotl), 0.0008);
 
     float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
+    for (int x = -2; x <= 2; ++x) {
+        for (int y = -2; y <= 2; ++y) {
             float closestDepth = texture(shadowMap, projCoords.xy + vec2(float(x), float(y)) * uShadowTexelSize).r;
             shadow += projCoords.z - bias > closestDepth ? 1.0 : 0.0;
         }
     }
-    shadow /= 9.0;
+    shadow /= 25.0;
     return 1.0 - shadow;
 }
 
@@ -128,7 +126,7 @@ vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir, vec3 baseColor, flo
 
     vec3 ambient = light.ambient * baseColor;
     vec3 diffuse = light.diffuse * diff * baseColor;
-    vec3 specular = light.specular * spec * kSpecularAlbedo * wallSpec;
+    vec3 specular = light.specular * spec * kSpecularAlbedo * wallSpec * 1.25;
     return ambient + shadow * (diffuse + specular);
 }
 
@@ -144,9 +142,9 @@ vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir, v
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), kShininess);
 
-    vec3 ambient = light.ambient * baseColor * attenuation;
-    vec3 diffuse = light.diffuse * diff * baseColor * attenuation;
-    vec3 specular = light.specular * spec * kSpecularAlbedo * wallSpec * attenuation;
+    vec3 ambient = light.color * 0.08 * baseColor * attenuation;
+    vec3 diffuse = light.color * diff * baseColor * attenuation;
+    vec3 specular = light.color * spec * kSpecularAlbedo * wallSpec * attenuation;
     return ambient + diffuse + specular;
 }
 
@@ -168,6 +166,16 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir, vec
     vec3 diffuse = light.diffuse * diff * baseColor * attenuation * intensity;
     vec3 specular = light.specular * spec * kSpecularAlbedo * wallSpec * attenuation * intensity;
     return ambient + diffuse + specular;
+}
+
+vec3 acesToneMap(vec3 x)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
 void main()
@@ -220,7 +228,8 @@ void main()
         windowSkylight = vec3(0.42, 0.55, 0.68) * facing * vert * (nearBeam * nearBeam) * 0.22;
     }
 
-    vec3 result = CalcDirLight(dirLight, norm, viewDir, baseColor, dirShadow, wallSpec);
+    vec3 result = globalAmbient * baseColor;
+    result += CalcDirLight(dirLight, norm, viewDir, baseColor, dirShadow, wallSpec);
     result += windowSkylight * baseColor;
 
     if (uApplyWindowFalloff == 1) {
@@ -231,15 +240,24 @@ void main()
     }
 
     if (uPointLightsOn == 1) {
-        for (int i = 0; i < NR_POINT_LIGHTS; ++i) {
+        for (int i = 0; i < numPointLights; ++i) {
             result += CalcPointLight(pointLights[i], norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
         }
     }
 
     result += CalcSpotLight(spotLight, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
-    result += uMaterialEmissive;
+    vec3 emissive = max(uMaterialEmissive, vec3(0.0));
+    if (uHasEmissiveMap) {
+        emissive += texture(texture_emissive1, fsIn.texCoord).rgb;
+    }
+    float emissiveLum = dot(emissive, vec3(0.299, 0.587, 0.114));
+    float emissiveMask = smoothstep(0.04, 0.18, emissiveLum);
+    vec3 emissiveDriven = emissive * 7.5;
+    result = mix(result, result * 0.22 + emissiveDriven, emissiveMask);
+    result += emissive * 0.35;
 
     vec3 color = max(result * uExposure, vec3(0.0));
+    color = acesToneMap(color);
     color = pow(color, vec3(1.0 / 2.2));
     FragColor = vec4(color, alpha);
 }

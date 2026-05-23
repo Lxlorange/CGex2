@@ -64,6 +64,7 @@ void Mesh::draw(const Shader& shader) const
 {
     bool hasDiffuseTexture = false;
     bool hasNormalTexture = false;
+    bool hasEmissiveTexture = false;
 
     for (const TextureAsset& texture : textures_) {
         if (texture.id == 0) {
@@ -79,11 +80,17 @@ void Mesh::draw(const Shader& shader) const
             glBindTexture(GL_TEXTURE_2D, texture.id);
             shader.setInt("texture_normal1", 1);
             hasNormalTexture = true;
+        } else if (texture.type == "texture_emissive" && !hasEmissiveTexture) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, texture.id);
+            shader.setInt("texture_emissive1", 2);
+            hasEmissiveTexture = true;
         }
     }
 
     shader.setBool("uHasTexture", hasDiffuseTexture);
     shader.setBool("uHasNormalMap", hasNormalTexture);
+    shader.setBool("uHasEmissiveMap", hasEmissiveTexture);
     shader.setVec3("uMaterialDiffuse", material_.diffuse);
     shader.setFloat("uMaterialAlpha", material_.opacity);
     shader.setVec3("uMaterialEmissive", material_.emissive);
@@ -119,6 +126,8 @@ void Mesh::draw(const Shader& shader) const
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
 }

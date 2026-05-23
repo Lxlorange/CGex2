@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "render/Shader.h"
 #include "render/ShadowMap.h"
+#include "render/LightManager.h"
 #include "core/Camera.h"
 #include "scene/Scene.h"
 
@@ -23,6 +24,7 @@ public:
     void toggleDayNight();
     bool isDayMode() const { return dayMode_; }
 
+    void setLightManager(const LightManager* lightManager) { lightManager_ = lightManager; }
     void render(const Scene& scene);
 
 private:
@@ -30,6 +32,7 @@ private:
     Shader& depthShader_;
     Camera& camera_;
     ShadowMap shadowMap_;
+    const LightManager* lightManager_ = nullptr;
     glm::vec3 lightDir_{-0.8f, -1.0f, -0.3f};
     bool directionalShadowsEnabled_ = true;
     static constexpr int kShadowMapUnit = 3;

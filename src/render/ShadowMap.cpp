@@ -98,8 +98,8 @@ glm::mat4 ShadowMap::computeLightSpaceMatrix(const glm::vec3& sceneMin, const gl
         maxZ = std::max(maxZ, tr.z);
     }
 
-    const float padXY = std::max(extent * 0.08f, 1.5f);
-    const float padZ = std::max((maxZ - minZ) * 0.35f, 2.0f);
+    const float padXY = std::max(extent * 0.05f, 1.0f);
+    const float padZ = std::max((maxZ - minZ) * 0.22f, 1.5f);
     float zNear = minZ - padZ;
     float zFar = maxZ + padZ;
     if (zNear > zFar) {
