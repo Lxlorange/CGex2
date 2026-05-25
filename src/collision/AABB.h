@@ -26,6 +26,9 @@ struct AABB {
     bool valid() const noexcept { return min.x <= max.x && min.y <= max.y && min.z <= max.z; }
 
     bool intersects(const AABB& o) const noexcept;
+
+    /// Smallest translation to move *this* out of `other` (only valid when intersecting).
+    glm::vec3 separationVector(const AABB& other) const noexcept;
 };
 
 struct NamedAABB {

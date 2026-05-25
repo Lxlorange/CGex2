@@ -13,8 +13,10 @@ endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
     set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty")
+    set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty")
 else()
-    message(FATAL_ERROR "Third-party directory not found. Expected ThirdParty.")
+    message(FATAL_ERROR "Third-party directory not found. Expected ThirdParty or Thirdparty.")
 endif()
 
 set(GLAD_ROOT "${THIRD_PARTY_DIR}/glad")
@@ -101,6 +103,20 @@ else()
     FetchContent_MakeAvailable(assimp)
 endif()
 
+# nlohmann/json (header-only, LightManager reads config/lighting_config.json)
+if(EXISTS "${THIRD_PARTY_DIR}/nlohmann/json.hpp")
+    add_library(nlohmann_json INTERFACE)
+    target_include_directories(nlohmann_json INTERFACE "${THIRD_PARTY_DIR}")
+    add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
+else()
+    FetchContent_Declare(
+        json_fc
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+    )
+    FetchContent_MakeAvailable(json_fc)
+endif()
+
 add_executable(ClassroomRenderer
     src/main.cpp
     src/core/Application.cpp
@@ -146,4 +162,5 @@ target_link_libraries(ClassroomRenderer PRIVATE
     glfw
     assimp
     imgui
+    nlohmann_json::nlohmann_json
 )

@@ -85,10 +85,17 @@ std::string resolvePath(const std::vector<std::string>& candidates)
     return {};
 }
 
-AABB cameraBodyAabb(const glm::vec3& position)
+namespace {
+
+// Eye position is Camera::Position; body box sits slightly below for FPS collision.
+constexpr glm::vec3 kCameraBodyOffsetFromEye{0.0f, -0.72f, 0.0f};
+constexpr glm::vec3 kCameraBodyHalfExtents{0.20f, 0.68f, 0.20f};
+constexpr float kCollisionEpsilon = 0.002f;
+
+AABB cameraBodyAabb(const glm::vec3& eyePosition)
 {
-    const glm::vec3 bodyCenter = position - glm::vec3(0.0f, 0.85f, 0.0f);
-    return AABB::fromCenterHalfExtents(bodyCenter, glm::vec3(0.28f, 0.92f, 0.28f));
+    const glm::vec3 bodyCenter = eyePosition + kCameraBodyOffsetFromEye;
+    return AABB::fromCenterHalfExtents(bodyCenter, kCameraBodyHalfExtents);
 }
 
 bool intersectsAny(const AABB& box, const std::vector<NamedAABB>& colliders)
@@ -101,6 +108,32 @@ bool intersectsAny(const AABB& box, const std::vector<NamedAABB>& colliders)
     return false;
 }
 
+glm::vec3 depenetratePosition(const glm::vec3& eyePosition, const std::vector<NamedAABB>& colliders)
+{
+    glm::vec3 eye = eyePosition;
+    for (int iter = 0; iter < 6; ++iter) {
+        bool moved = false;
+        AABB body = cameraBodyAabb(eye);
+        for (const NamedAABB& collider : colliders) {
+            if (!body.intersects(collider.box)) {
+                continue;
+            }
+            const glm::vec3 sep = body.separationVector(collider.box);
+            if (glm::dot(sep, sep) <= 1e-12f) {
+                continue;
+            }
+            const float len = std::sqrt(glm::dot(sep, sep));
+            eye += sep + (sep / len) * kCollisionEpsilon;
+            body = cameraBodyAabb(eye);
+            moved = true;
+        }
+        if (!moved) {
+            break;
+        }
+    }
+    return eye;
+}
+
 void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
                             const std::vector<NamedAABB>& colliders)
 {
@@ -109,6 +142,10 @@ void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
     }
 
     const glm::vec3 desired = camera.Position;
+    if (!intersectsAny(cameraBodyAabb(desired), colliders)) {
+        return;
+    }
+
     glm::vec3 candidate = previousPosition;
 
     auto tryAxis = [&](int axis) {
@@ -119,13 +156,24 @@ void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
         }
     };
 
-    // Axis-separated sliding: a blocked axis rolls back while other axes can still move.
+    // Horizontal first — reduces corner snagging when strafing along walls.
     tryAxis(0);
     tryAxis(2);
     tryAxis(1);
 
+    candidate = depenetratePosition(candidate, colliders);
+
+    if (intersectsAny(cameraBodyAabb(candidate), colliders)) {
+        candidate = depenetratePosition(previousPosition, colliders);
+        if (intersectsAny(cameraBodyAabb(candidate), colliders)) {
+            candidate = previousPosition;
+        }
+    }
+
     camera.Position = candidate;
 }
+
+} // namespace
 
 void handleLightingHotkeys(GLFWwindow* window, LightingState& lighting)
 {
@@ -319,23 +367,17 @@ int main()
 
     const std::string modelPath = resolvePath({
         "resources/models/partyCarriage.glb",
-        // "resources/models/oldschool.glb",
-        // "resources/models/oldschool2.glb",
-        // "resources/models/oldschool.obj",
-        // "resources/models/Tsukinomori.obj",
-        // "resources/models/Tsukinomori.fbx",
     });
 
     Scene scene;
-    if (!modelPath.empty()) {
-        scene.addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
-    }
-
-    if (scene.entries().empty()) {
-        std::cerr << "No models in scene.\n";
+    if (modelPath.empty()) {
+        std::cerr << "Model not found. Place partyCarriage.glb at:\n"
+                  << "  <project>/resources/models/partyCarriage.glb\n"
+                  << "Run the executable from the project root (same folder as CMakeLists.txt).\n";
         shutdownImGui();
         return -1;
     }
+    scene.addModel({modelPath, Transform{glm::vec3(0.0f, 0.0f, 0.0f)}, "Model"});
 
     std::string loadStageText = "Preparing...";
     float loadOverall = 0.0f;
