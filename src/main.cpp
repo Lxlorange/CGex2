@@ -9,6 +9,8 @@
 #include "collision/DebugAabbDrawer.h"
 #include "core/Application.h"
 #include "core/Camera.h"
+#include "render/BloomRenderer.h"
+#include "render/HDRFramebuffer.h"
 #include "render/LightManager.h"
 #include "render/Renderer.h"
 #include "render/Shader.h"
@@ -208,14 +210,12 @@ void syncLightingUniforms(Shader& shader, Renderer& renderer, const Camera& came
     shader.use();
     if (lighting.isDay) {
         renderer.setDirectionalShadowsEnabled(true);
-        shader.setFloat("uExposure", 0.88f);
         shader.setVec3("dirLight.ambient", glm::vec3(0.10f, 0.105f, 0.12f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.88f, 0.82f, 0.68f));
         shader.setVec3("dirLight.specular", glm::vec3(0.22f, 0.20f, 0.18f));
         shader.setInt("uPointLightsOn", lighting.pointLightsOn ? 1 : 0);
     } else {
         renderer.setDirectionalShadowsEnabled(false);
-        shader.setFloat("uExposure", 0.94f);
         shader.setVec3("dirLight.ambient", glm::vec3(0.02f, 0.02f, 0.05f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.05f, 0.05f, 0.10f));
         shader.setVec3("dirLight.specular", glm::vec3(0.10f, 0.10f, 0.10f));
@@ -304,6 +304,14 @@ void alignPointLightsToEmissiveMeshes(LightManager& lightManager, const Scene& s
               << " point light position(s) to emissive lamp mesh centers.\n";
 }
 
+void applyBulbTuningToPointLights(LightManager& lightManager)
+{
+    for (PointLight& light : lightManager.pointLights) {
+        light.color = lightManager.tuning.bulbLightColor * lightManager.tuning.bulbLightIntensity;
+        light.intensity = lightManager.tuning.bulbLightIntensity;
+    }
+}
+
 void shutdownImGui()
 {
     ImGui_ImplOpenGL3_Shutdown();
@@ -343,9 +351,14 @@ int main()
     const std::string depthFragPath = resolvePath({"shaders/depth.frag"});
     const std::string dbgVert = resolvePath({"shaders/debug_line.vert"});
     const std::string dbgFrag = resolvePath({"shaders/debug_line.frag"});
+    const std::string fullscreenVert = resolvePath({"shaders/fullscreen.vert"});
+    const std::string brightFrag = resolvePath({"shaders/bright_extract.frag"});
+    const std::string blurFrag = resolvePath({"shaders/gaussian_blur.frag"});
+    const std::string compositeFrag = resolvePath({"shaders/hdr_composite.frag"});
     const std::string lightingConfigPath = resolvePath({"config/lighting_config.json"});
     if (vertPath.empty() || fragPath.empty() || depthVertPath.empty() || depthFragPath.empty()
-        || dbgVert.empty() || dbgFrag.empty()) {
+        || dbgVert.empty() || dbgFrag.empty() || fullscreenVert.empty() || brightFrag.empty()
+        || blurFrag.empty() || compositeFrag.empty()) {
         std::cerr << "Required shader files not found.\n";
         shutdownImGui();
         return -1;
@@ -354,7 +367,11 @@ int main()
     Shader shader(vertPath.c_str(), fragPath.c_str());
     Shader depthShader(depthVertPath.c_str(), depthFragPath.c_str());
     DebugAabbDrawer debugDrawer(Shader(dbgVert.c_str(), dbgFrag.c_str()));
-    if (!shader.isValid() || !depthShader.isValid() || !debugDrawer.shader().isValid()) {
+    Shader brightShader(fullscreenVert.c_str(), brightFrag.c_str());
+    Shader blurShader(fullscreenVert.c_str(), blurFrag.c_str());
+    Shader compositeShader(fullscreenVert.c_str(), compositeFrag.c_str());
+    if (!shader.isValid() || !depthShader.isValid() || !debugDrawer.shader().isValid()
+        || !brightShader.isValid() || !blurShader.isValid() || !compositeShader.isValid()) {
         std::cerr << "Shader compilation failed.\n";
         shutdownImGui();
         return -1;
@@ -431,6 +448,8 @@ int main()
     Renderer renderer(shader, depthShader, app.camera());
     renderer.setLightManager(&lightManager);
     renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
+    HDRFramebuffer hdrFramebuffer;
+    BloomRenderer bloomRenderer(brightShader, blurShader, compositeShader);
 
     LightingState lighting;
     bool showDemoColliders = false;
@@ -438,20 +457,11 @@ int main()
     bool collisionEnabled = false;
     bool drawColliders = false;
     bool showSunMarker = true;
-    float shadowStrength = 0.94f;
     glm::vec3 debugColor{0.25f, 0.95f, 0.35f};
     glm::vec3 lastCameraPosition = app.camera().Position;
 
     app.run([&](float /*dt*/) {
         handleLightingHotkeys(app.window(), lighting);
-
-        if (lighting.isDay) {
-            glClearColor(0.52f, 0.74f, 0.93f, 1.0f);
-        } else {
-            glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
-        }
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        restoreGlStateForScene(app.window());
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -474,14 +484,24 @@ int main()
         ImGui::Separator();
         ImGui::TextUnformatted("Light Intensity");
         ImGui::SliderFloat("Sun Strength", &lightManager.directionalStrength, 0.0f, 3.0f);
-        ImGui::SliderFloat("Shadow Strength", &shadowStrength, 0.0f, 1.0f);
+        ImGui::SliderFloat("Shadow Strength", &lightManager.tuning.shadowStrength, 0.0f, 1.0f);
         ImGui::SliderFloat("Point Strength", &lightManager.pointLightStrength, 0.0f, 4.0f);
         ImGui::SliderFloat("Flashlight Strength", &lightManager.spotLightStrength, 0.0f, 3.0f);
+        ImGui::Separator();
+        ImGui::TextUnformatted("Bulb Glow");
+        ImGui::Checkbox("Bloom", &lightManager.tuning.bloomEnabled);
+        ImGui::SliderFloat("Exposure", &lightManager.tuning.exposure, 0.2f, 3.0f);
+        ImGui::SliderFloat("Bloom Threshold", &lightManager.tuning.bloomThreshold, 0.2f, 5.0f);
+        ImGui::SliderFloat("Bloom Strength", &lightManager.tuning.bloomStrength, 0.0f, 2.5f);
+        ImGui::SliderFloat("Emissive Boost", &lightManager.tuning.emissiveStrengthMultiplier, 0.0f, 8.0f);
+        ImGui::SliderFloat("Bulb Light Intensity", &lightManager.tuning.bulbLightIntensity, 0.0f, 120.0f);
+        ImGui::ColorEdit3("Bulb Light Color", &lightManager.tuning.bulbLightColor[0]);
         ImGui::DragFloat3("Sun Direction", &lightManager.sunLight.direction[0], 0.02f, -1.0f, 1.0f);
         if (glm::dot(lightManager.sunLight.direction, lightManager.sunLight.direction) < 0.0001f) {
             lightManager.sunLight.direction = glm::vec3(-0.2f, -1.0f, -0.3f);
         }
         if (ImGui::Button("Save Lighting Config", ImVec2(-1.0f, 42.0f)) && !lightingConfigPath.empty()) {
+            applyBulbTuningToPointLights(lightManager);
             lightManager.saveConfig(lightingConfigPath);
         }
         ImGui::End();
@@ -501,9 +521,38 @@ int main()
         }
         lastCameraPosition = cam.Position;
 
+        applyBulbTuningToPointLights(lightManager);
+
+        bloomRenderer.enabled = lightManager.tuning.bloomEnabled;
+        bloomRenderer.exposure = lightManager.tuning.exposure;
+        bloomRenderer.threshold = lightManager.tuning.bloomThreshold;
+        bloomRenderer.strength = lightManager.tuning.bloomStrength;
+        bloomRenderer.blurIterations = lightManager.tuning.bloomBlurIterations;
+
+        int framebufferW = 0;
+        int framebufferH = 0;
+        glfwGetFramebufferSize(app.window(), &framebufferW, &framebufferH);
+        if (framebufferW <= 0 || framebufferH <= 0) {
+            framebufferW = appCfg.width;
+            framebufferH = appCfg.height;
+        }
+        hdrFramebuffer.resize(framebufferW, framebufferH);
+        bloomRenderer.resize(framebufferW, framebufferH);
+        hdrFramebuffer.bind();
+        if (lighting.isDay) {
+            glClearColor(0.52f, 0.74f, 0.93f, 1.0f);
+        } else {
+            glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
+        }
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        restoreGlStateForScene(app.window());
+
         renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
-        renderer.setShadowStrength(shadowStrength);
+        renderer.setShadowStrength(lightManager.tuning.shadowStrength);
+        renderer.setRenderTarget(hdrFramebuffer.framebuffer(), hdrFramebuffer.width(), hdrFramebuffer.height());
         syncLightingUniforms(shader, renderer, cam, lighting, lightManager);
+        shader.use();
+        shader.setFloat("uEmissiveStrengthMultiplier", lightManager.tuning.emissiveStrengthMultiplier);
         renderer.render(scene);
         if (showSunMarker) {
             drawSunMarker(debugDrawer, app.window(), cam, lightManager.sunLight.direction);
@@ -522,6 +571,8 @@ int main()
             const glm::mat4 view = cam.GetViewMatrix();
             debugDrawer.draw(proj, view, colliders, debugColor);
         }
+
+        bloomRenderer.render(hdrFramebuffer.colorTexture());
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

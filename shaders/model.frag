@@ -44,7 +44,7 @@ uniform int uUseDirectionalShadow;
 uniform vec2 uShadowTexelSize;
 uniform float uShadowStrength;
 uniform float uLampEmissionScale;
-uniform float uExposure;
+uniform float uEmissiveStrengthMultiplier;
 uniform vec3 uSceneMin;
 uniform vec3 uSceneMax;
 uniform int uApplyWindowFalloff;
@@ -138,7 +138,7 @@ vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir, v
     float distance = length(toLight);
     vec3 lightDir = normalize(toLight);
 
-    float attenuation = pow(attenuationPoly(distance, light.constant, light.linear, light.quadratic), 1.45);
+    float attenuation = 1.0 / (distance * distance + 0.001);
 
     float diff = max(dot(normal, lightDir), 0.0);
     vec3 halfwayDir = normalize(lightDir + viewDir);
@@ -170,23 +170,13 @@ vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir, vec
     return ambient + diffuse + specular;
 }
 
-vec3 acesToneMap(vec3 x)
-{
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
 void main()
 {
     vec3 baseColor = uMaterialDiffuse;
     float alpha = uMaterialAlpha;
     if (uHasTexture) {
         vec4 texColor = texture(texture_diffuse1, fsIn.texCoord);
-        baseColor = texColor.rgb;
+        baseColor = pow(texColor.rgb, vec3(2.2));
         alpha *= texColor.a;
     }
 
@@ -250,18 +240,15 @@ void main()
     result += CalcSpotLight(spotLight, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
     vec3 rawEmissive = max(uMaterialEmissive, vec3(0.0));
     if (uHasEmissiveMap) {
-        rawEmissive += texture(texture_emissive1, fsIn.texCoord).rgb;
+        rawEmissive *= pow(texture(texture_emissive1, fsIn.texCoord).rgb, vec3(2.2));
     }
     float emissiveLum = dot(rawEmissive, vec3(0.299, 0.587, 0.114));
     float emissiveMask = smoothstep(0.04, 0.18, emissiveLum);
-    float emissionScale = max(uLampEmissionScale, 0.0);
+    float emissionScale = max(uLampEmissionScale * uEmissiveStrengthMultiplier, 0.0);
     vec3 emissive = rawEmissive * emissionScale;
     vec3 emissiveDriven = emissive * 7.5;
     result = mix(result, result * clamp(emissionScale, 0.0, 1.0) + emissiveDriven, emissiveMask);
     result += emissive * 0.35;
 
-    vec3 color = max(result * uExposure, vec3(0.0));
-    color = acesToneMap(color);
-    color = pow(color, vec3(1.0 / 2.2));
-    FragColor = vec4(color, alpha);
+    FragColor = vec4(max(result, vec3(0.0)), alpha);
 }

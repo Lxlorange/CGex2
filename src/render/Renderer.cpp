@@ -26,6 +26,13 @@ Renderer::Renderer(Shader& litShader, Shader& depthShader, Camera& camera)
 {
 }
 
+void Renderer::setRenderTarget(GLuint framebuffer, int width, int height)
+{
+    targetFramebuffer_ = framebuffer;
+    targetWidth_ = width;
+    targetHeight_ = height;
+}
+
 void Renderer::render(const Scene& scene)
 {
     static bool printedShadowStatus = false;
@@ -72,7 +79,7 @@ void Renderer::render(const Scene& scene)
         depthShader_.setMat4("uLightSpaceMatrix", lightSpace);
         scene.drawAll(depthShader_, true);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, targetFramebuffer_);
         if (cullFaceWasEnabled) {
             glCullFace(previousCullFace);
         }
@@ -82,12 +89,16 @@ void Renderer::render(const Scene& scene)
             glDisable(GL_CULL_FACE);
         }
         glDisable(GL_POLYGON_OFFSET_FILL);
-        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        if (targetWidth_ > 0 && targetHeight_ > 0) {
+            glViewport(0, 0, targetWidth_, targetHeight_);
+        } else {
+            glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        }
     }
 
     litShader_.use();
-    int w = viewport[2];
-    int h = viewport[3];
+    int w = targetWidth_ > 0 ? targetWidth_ : viewport[2];
+    int h = targetHeight_ > 0 ? targetHeight_ : viewport[3];
     if (w <= 0 || h <= 0) {
         GLFWwindow* win = glfwGetCurrentContext();
         if (win) glfwGetFramebufferSize(win, &w, &h);

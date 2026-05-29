@@ -60,6 +60,7 @@ bool LightManager::loadConfig(const std::string& path)
         globalAmbient = readVec3(env.at("global_ambient"), "environment.global_ambient");
         pointLightStrength = env.value("point_light_strength", 1.0f);
         spotLightStrength = env.value("spot_light_strength", 1.0f);
+        tuning.shadowStrength = env.value("shadow_strength", tuning.shadowStrength);
 
         const auto& dir = data.at("directional_light");
         sunLight.direction = readVec3(dir.at("direction"), "directional_light.direction");
@@ -92,6 +93,24 @@ bool LightManager::loadConfig(const std::string& path)
             light.quadratic = pl.value("quadratic", 0.032f);
             pointLights.push_back(light);
         }
+
+        if (data.contains("post_process")) {
+            const auto& post = data.at("post_process");
+            tuning.bloomEnabled = post.value("bloom_enabled", tuning.bloomEnabled);
+            tuning.exposure = post.value("exposure", tuning.exposure);
+            tuning.bloomThreshold = post.value("bloom_threshold", tuning.bloomThreshold);
+            tuning.bloomStrength = post.value("bloom_strength", tuning.bloomStrength);
+            tuning.bloomBlurIterations = post.value("bloom_blur_iterations", tuning.bloomBlurIterations);
+        }
+
+        if (data.contains("bulb_glow")) {
+            const auto& bulb = data.at("bulb_glow");
+            tuning.emissiveStrengthMultiplier = bulb.value("emissive_strength_multiplier", tuning.emissiveStrengthMultiplier);
+            tuning.bulbLightIntensity = bulb.value("point_light_intensity", tuning.bulbLightIntensity);
+            if (bulb.contains("point_light_color")) {
+                tuning.bulbLightColor = readVec3(bulb.at("point_light_color"), "bulb_glow.point_light_color");
+            }
+        }
     } catch (const std::exception& ex) {
         std::cerr << "[Light] Failed to parse lighting config: " << path << '\n'
                   << "  Reason: " << ex.what() << '\n';
@@ -111,6 +130,7 @@ bool LightManager::saveConfig(const std::string& path) const
         { "global_ambient", writeVec3(globalAmbient) },
         { "point_light_strength", pointLightStrength },
         { "spot_light_strength", spotLightStrength },
+        { "shadow_strength", tuning.shadowStrength },
     };
     data["directional_light"] = {
         { "direction", writeVec3(sunLight.direction) },
@@ -137,6 +157,20 @@ bool LightManager::saveConfig(const std::string& path) const
         }
         data["point_lights"].push_back(item);
     }
+
+    data["post_process"] = {
+        { "bloom_enabled", tuning.bloomEnabled },
+        { "exposure", tuning.exposure },
+        { "bloom_threshold", tuning.bloomThreshold },
+        { "bloom_strength", tuning.bloomStrength },
+        { "bloom_blur_iterations", tuning.bloomBlurIterations },
+    };
+
+    data["bulb_glow"] = {
+        { "emissive_strength_multiplier", tuning.emissiveStrengthMultiplier },
+        { "point_light_intensity", tuning.bulbLightIntensity },
+        { "point_light_color", writeVec3(tuning.bulbLightColor) },
+    };
 
     std::ofstream file(path);
     if (!file.is_open()) {

@@ -489,6 +489,9 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
         textures.insert(textures.end(), shininessTextures.begin(), shininessTextures.end());
         auto emissiveTextures = loadMaterialTextures(material, aiTextureType_EMISSIVE, "texture_emissive", scene);
         textures.insert(textures.end(), emissiveTextures.begin(), emissiveTextures.end());
+        if (!emissiveTextures.empty() && glm::dot(materialData.emissive, materialData.emissive) <= 0.0001f) {
+            materialData.emissive = glm::vec3(1.0f) * emissiveIntensity;
+        }
         auto normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());
         auto heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);

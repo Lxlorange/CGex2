@@ -22,6 +22,18 @@ struct PointLight {
     float quadratic = 0.032f;
 };
 
+struct RenderTuning {
+    float shadowStrength = 0.94f;
+    bool bloomEnabled = true;
+    float exposure = 1.35f;
+    float bloomThreshold = 1.0f;
+    float bloomStrength = 0.5f;
+    int bloomBlurIterations = 8;
+    float emissiveStrengthMultiplier = 2.5f;
+    glm::vec3 bulbLightColor{ 1.0f, 0.72f, 0.35f };
+    float bulbLightIntensity = 48.0f;
+};
+
 class LightManager {
 public:
     glm::vec3 globalAmbient{ 0.05f };
@@ -30,6 +42,7 @@ public:
     float directionalStrength = 1.8f;
     float pointLightStrength = 1.0f;
     float spotLightStrength = 1.0f;
+    RenderTuning tuning;
 
     bool loadConfig(const std::string& path);
     bool saveConfig(const std::string& path) const;
