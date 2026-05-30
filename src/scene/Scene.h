@@ -1,6 +1,7 @@
 #pragma once
 
 #include "collision/AABB.h"
+#include "collision/CollisionPrimitives.h"
 #include "core/Transform.h"
 #include "Model.h"
 
@@ -28,6 +29,7 @@ public:
     void releaseVertexArraysForCurrentContext();
 
     std::vector<NamedAABB> namedWorldAABBs() const;
+    std::vector<NamedOBB> namedWorldOBBs() const;
     std::vector<EmissiveMeshInfo> emissiveMeshCenters() const;
     bool computeWorldBounds(glm::vec3& outMin, glm::vec3& outMax) const;
 

@@ -126,6 +126,19 @@ std::vector<NamedAABB> Scene::namedWorldAABBs() const
     return out;
 }
 
+std::vector<NamedOBB> Scene::namedWorldOBBs() const
+{
+    std::vector<NamedOBB> out;
+    for (const auto& entry : entries_) {
+        auto it = modelCache_.find(entry.path);
+        if (it == modelCache_.end() || !it->second->isLoaded()) {
+            continue;
+        }
+        it->second->appendWorldMeshOBBs(entry.transform.matrix(), entry.name, out);
+    }
+    return out;
+}
+
 std::vector<EmissiveMeshInfo> Scene::emissiveMeshCenters() const
 {
     std::vector<EmissiveMeshInfo> out;

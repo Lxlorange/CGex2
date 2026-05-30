@@ -613,6 +613,23 @@ void Model::appendWorldMeshAABBs(const glm::mat4& modelMatrix, const std::string
     }
 }
 
+void Model::appendWorldMeshOBBs(const glm::mat4& modelMatrix, const std::string& namePrefix,
+                                std::vector<NamedOBB>& out) const
+{
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        const Mesh& mesh = meshes_[i];
+        if (!mesh.hasLocalBounds()) {
+            continue;
+        }
+
+        const OBB world = OBB::fromLocalAABB(
+            mesh.localBoundsMin(),
+            mesh.localBoundsMax(),
+            modelMatrix);
+        out.push_back({namePrefix + "/mesh_" + std::to_string(i), world});
+    }
+}
+
 void Model::appendEmissiveMeshCenters(const glm::mat4& modelMatrix, std::vector<EmissiveMeshInfo>& out) const
 {
     for (const Mesh& mesh : meshes_) {

@@ -6,6 +6,7 @@
 #include <imgui_impl_opengl3.h>
 
 #include "collision/AABB.h"
+#include "collision/CollisionPrimitives.h"
 #include "collision/DebugAabbDrawer.h"
 #include "core/Application.h"
 #include "core/Camera.h"
@@ -90,55 +91,58 @@ std::string resolvePath(const std::vector<std::string>& candidates)
 
 namespace {
 
-// Eye position is Camera::Position; body box sits slightly below for FPS collision.
-constexpr glm::vec3 kCameraBodyOffsetFromEye{0.0f, -0.72f, 0.0f};
-constexpr glm::vec3 kCameraBodyHalfExtents{0.20f, 0.68f, 0.20f};
+// Eye position is Camera::Position; capsule is the walking body below it.
+constexpr float kCameraCapsuleRadius = 0.22f;
+constexpr float kCameraCapsuleTopOffset = -0.20f;
+constexpr float kCameraCapsuleBottomOffset = -1.32f;
 constexpr float kCollisionEpsilon = 0.002f;
+constexpr int kCollisionIterations = 4;
 
-AABB cameraBodyAabb(const glm::vec3& eyePosition)
+Capsule cameraBodyCapsule(const glm::vec3& eyePosition)
 {
-    const glm::vec3 bodyCenter = eyePosition + kCameraBodyOffsetFromEye;
-    return AABB::fromCenterHalfExtents(bodyCenter, kCameraBodyHalfExtents);
+    return Capsule(
+        eyePosition + glm::vec3(0.0f, kCameraCapsuleBottomOffset + kCameraCapsuleRadius, 0.0f),
+        eyePosition + glm::vec3(0.0f, kCameraCapsuleTopOffset - kCameraCapsuleRadius, 0.0f),
+        kCameraCapsuleRadius);
 }
 
-bool intersectsAny(const AABB& box, const std::vector<NamedAABB>& colliders)
+Contact strongestCapsuleContact(const Capsule& capsule, const std::vector<NamedAABB>& colliders)
 {
+    Contact strongest;
     for (const NamedAABB& collider : colliders) {
-        if (box.intersects(collider.box)) {
-            return true;
+        Contact contact = capsuleAABBContact(capsule, collider.box);
+        if (contact.hit && contact.penetration > strongest.penetration) {
+            strongest = contact;
         }
     }
-    return false;
+    return strongest;
 }
 
-glm::vec3 depenetratePosition(const glm::vec3& eyePosition, const std::vector<NamedAABB>& colliders)
+Contact strongestCapsuleContact(const Capsule& capsule, const std::vector<NamedOBB>& colliders)
 {
-    glm::vec3 eye = eyePosition;
-    for (int iter = 0; iter < 6; ++iter) {
-        bool moved = false;
-        AABB body = cameraBodyAabb(eye);
-        for (const NamedAABB& collider : colliders) {
-            if (!body.intersects(collider.box)) {
-                continue;
-            }
-            const glm::vec3 sep = body.separationVector(collider.box);
-            if (glm::dot(sep, sep) <= 1e-12f) {
-                continue;
-            }
-            const float len = std::sqrt(glm::dot(sep, sep));
-            eye += sep + (sep / len) * kCollisionEpsilon;
-            body = cameraBodyAabb(eye);
-            moved = true;
-        }
-        if (!moved) {
-            break;
+    Contact strongest;
+    for (const NamedOBB& collider : colliders) {
+        Contact contact = capsuleOBBContact(capsule, collider.box);
+        if (contact.hit && contact.penetration > strongest.penetration) {
+            strongest = contact;
         }
     }
-    return eye;
+    return strongest;
 }
 
+bool capsuleIntersectsAny(const Capsule& capsule, const std::vector<NamedAABB>& colliders)
+{
+    return strongestCapsuleContact(capsule, colliders).hit;
+}
+
+bool capsuleIntersectsAny(const Capsule& capsule, const std::vector<NamedOBB>& colliders)
+{
+    return strongestCapsuleContact(capsule, colliders).hit;
+}
+
+#if 0
 void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
-                            const std::vector<NamedAABB>& colliders)
+                            const std::vector<NamedOBB>& colliders)
 {
     if (colliders.empty()) {
         return;
@@ -174,6 +178,76 @@ void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
     }
 
     camera.Position = candidate;
+}
+#endif
+
+void resolveCameraCollision(Camera& camera, const glm::vec3& previousPosition,
+                            const std::vector<NamedOBB>& colliders)
+{
+    if (colliders.empty()) {
+        return;
+    }
+
+    glm::vec3 current = previousPosition;
+    glm::vec3 remaining = camera.Position - previousPosition;
+    if (glm::dot(remaining, remaining) <= 1e-12f) {
+        return;
+    }
+
+    for (int iter = 0; iter < kCollisionIterations; ++iter) {
+        if (glm::dot(remaining, remaining) <= 1e-10f) {
+            break;
+        }
+
+        glm::vec3 candidate = current + remaining;
+        Contact contact = strongestCapsuleContact(cameraBodyCapsule(candidate), colliders);
+        if (!contact.hit) {
+            current = candidate;
+            remaining = glm::vec3(0.0f);
+            break;
+        }
+
+        current = candidate + contact.normal * (contact.penetration + kCollisionEpsilon);
+        remaining = slideVector(remaining, contact.normal);
+
+        const float normalMotion = glm::dot(remaining, contact.normal);
+        if (normalMotion < 0.0f) {
+            remaining -= contact.normal * normalMotion;
+        }
+    }
+
+    for (int iter = 0; iter < kCollisionIterations; ++iter) {
+        Contact contact = strongestCapsuleContact(cameraBodyCapsule(current), colliders);
+        if (!contact.hit) {
+            break;
+        }
+        current += contact.normal * (contact.penetration + kCollisionEpsilon);
+    }
+
+    if (capsuleIntersectsAny(cameraBodyCapsule(current), colliders)) {
+        current = previousPosition;
+    }
+    camera.Position = current;
+}
+
+bool isUsefulCameraCollider(const NamedOBB& collider, const glm::vec3& sceneExtent)
+{
+    const glm::vec3 full = collider.box.halfExtents * 2.0f;
+    if (full.x <= 0.002f || full.y <= 0.002f || full.z <= 0.002f) {
+        return false;
+    }
+
+    const float volume = full.x * full.y * full.z;
+    const float sceneVolume = std::max(sceneExtent.x * sceneExtent.y * sceneExtent.z, 0.001f);
+    if (volume > sceneVolume * 0.35f) {
+        return false;
+    }
+
+    const int spanningAxes =
+        (full.x > sceneExtent.x * 0.72f ? 1 : 0)
+        + (full.y > sceneExtent.y * 0.72f ? 1 : 0)
+        + (full.z > sceneExtent.z * 0.72f ? 1 : 0);
+    return spanningAxes < 2;
 }
 
 } // namespace
@@ -453,10 +527,16 @@ int main()
 
     glm::vec3 bmin;
     glm::vec3 bmax;
+    glm::vec3 sceneExtent(1.0f);
     if (scene.computeWorldBounds(bmin, bmax)) {
         const glm::vec3 center = 0.5f * (bmin + bmax);
-        const float radius = 0.5f * glm::length(bmax - bmin);
-        app.camera().fitFreeFlyViewAroundCenter(center, radius);
+        sceneExtent = glm::max(bmax - bmin, glm::vec3(0.001f));
+        Camera& cam = app.camera();
+        cam.Position = glm::vec3(center.x, bmin.y + 1.55f, center.z + sceneExtent.z * 0.18f);
+        cam.Yaw = -90.0f;
+        cam.Pitch = -6.0f;
+        cam.MovementSpeed = std::clamp(glm::length(sceneExtent) * 0.08f, 1.5f, 6.0f);
+        cam.ProcessMouseMovement(0.0f, 0.0f);
     }
 
     Renderer renderer(shader, depthShader, app.camera());
@@ -469,7 +549,7 @@ int main()
 
     LightingState lighting;
     bool showDemoColliders = false;
-    bool useSceneEntryAABBs = true;
+    bool useSceneEntryOBBs = true;
     bool collisionEnabled = false;
     bool drawColliders = false;
     bool showSunMarker = true;
@@ -530,13 +610,30 @@ int main()
         }
         ImGui::End();
 
-        std::vector<NamedAABB> colliders;
+        std::vector<NamedOBB> colliders;
+        std::vector<NamedAABB> debugColliders;
         if (showDemoColliders) {
-            appendDemoRoomColliders(colliders);
+            appendDemoRoomColliders(debugColliders);
+            for (const NamedAABB& box : debugColliders) {
+                colliders.push_back({box.name, OBB::fromAABB(box.box)});
+            }
         }
-        if (useSceneEntryAABBs) {
-            std::vector<NamedAABB> fromScene = scene.namedWorldAABBs();
-            colliders.insert(colliders.end(), fromScene.begin(), fromScene.end());
+        if (useSceneEntryOBBs) {
+            std::vector<NamedOBB> fromScene = scene.namedWorldOBBs();
+            for (const NamedOBB& collider : fromScene) {
+                if (!isUsefulCameraCollider(collider, sceneExtent)) {
+                    continue;
+                }
+                colliders.push_back(collider);
+                const std::array<glm::vec3, 8> corners = collider.box.corners();
+                glm::vec3 mn(std::numeric_limits<float>::max());
+                glm::vec3 mx(std::numeric_limits<float>::lowest());
+                for (const glm::vec3& corner : corners) {
+                    mn = glm::min(mn, corner);
+                    mx = glm::max(mx, corner);
+                }
+                debugColliders.push_back({collider.name, AABB::fromMinMax(mn, mx)});
+            }
         }
 
         Camera& cam = app.camera();
@@ -600,7 +697,7 @@ int main()
                 glm::radians(cam.Zoom),
                 static_cast<float>(w) / static_cast<float>(h), 0.1f, 300.0f);
             const glm::mat4 view = cam.GetViewMatrix();
-            debugDrawer.draw(proj, view, colliders, debugColor);
+            debugDrawer.draw(proj, view, debugColliders, debugColor);
         }
 
         bloomRenderer.render(hdrFramebuffer.colorTexture());

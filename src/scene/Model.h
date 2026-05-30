@@ -1,6 +1,7 @@
 #pragma once
 
 #include "collision/AABB.h"
+#include "collision/CollisionPrimitives.h"
 #include "render/Mesh.h"
 
 #include <assimp/scene.h>
@@ -51,6 +52,8 @@ public:
     const glm::vec3& localAabbMax() const noexcept { return localAabbMax_; }
     void appendWorldMeshAABBs(const glm::mat4& modelMatrix, const std::string& namePrefix,
                               std::vector<NamedAABB>& out) const;
+    void appendWorldMeshOBBs(const glm::mat4& modelMatrix, const std::string& namePrefix,
+                             std::vector<NamedOBB>& out) const;
     void appendEmissiveMeshCenters(const glm::mat4& modelMatrix, std::vector<EmissiveMeshInfo>& out) const;
     void worldBounds(const glm::mat4& modelMatrix, glm::vec3& outMin, glm::vec3& outMax) const;
 

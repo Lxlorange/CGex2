@@ -125,6 +125,8 @@ add_executable(ClassroomRenderer
     src/core/Transform.h
     src/collision/AABB.cpp
     src/collision/AABB.h
+    src/collision/CollisionPrimitives.cpp
+    src/collision/CollisionPrimitives.h
     src/collision/DebugAabbDrawer.cpp
     src/collision/DebugAabbDrawer.h
     src/render/Renderer.cpp
