@@ -39,7 +39,7 @@ public:
     bool isLoaded() const noexcept { return loaded_; }
     void draw(const Shader& shader) const;
     void drawOpaque(const Shader& shader) const;
-    void drawGeometryOnly() const;
+    void drawGeometryOnly(bool skipEmissive = false) const;
     void appendTransparentDraws(const glm::mat4& modelMatrix, const glm::vec3& viewPosition,
                                 std::vector<TransparentMeshDraw>& out) const;
 

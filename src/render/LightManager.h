@@ -29,9 +29,13 @@ struct RenderTuning {
     float bloomThreshold = 1.0f;
     float bloomStrength = 0.5f;
     int bloomBlurIterations = 8;
-    float emissiveStrengthMultiplier = 2.5f;
-    glm::vec3 bulbLightColor{ 1.0f, 0.72f, 0.35f };
-    float bulbLightIntensity = 48.0f;
+    float emissiveStrengthMultiplier = 0.75f;
+    glm::vec3 bulbLightColor{ 1.0f, 0.62f, 0.28f };
+    float bulbLightIntensity = 8.0f;
+    float bulbDownwardInnerCos = 0.35f;
+    float bulbDownwardOuterCos = -0.10f;
+    bool pointShadowsEnabled = true;
+    float pointShadowStrength = 0.88f;
 };
 
 class LightManager {

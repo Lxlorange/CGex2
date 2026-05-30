@@ -2,6 +2,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 #include <iostream>
 
 void Renderer::toggleDayNight()
@@ -65,6 +66,13 @@ void Renderer::render(const Scene& scene)
         lightSpace = ShadowMap::computeLightSpaceMatrix(sceneBmin_, sceneBmax_, glm::normalize(lightDir_));
     }
 
+    const int pointShadowCount = (lightManager_ != nullptr && pointDepthShader_ != nullptr && pointDepthShader_->isValid())
+        ? std::min({static_cast<int>(lightManager_->pointLights.size()), kMaxPointShadowMaps, 8})
+        : 0;
+    while (static_cast<int>(pointShadowMaps_.size()) < pointShadowCount) {
+        pointShadowMaps_.push_back(std::make_unique<PointShadowMap>(384));
+    }
+
     if (wantShadowPass) {
         const GLboolean cullFaceWasEnabled = glIsEnabled(GL_CULL_FACE);
         GLint previousCullFace = GL_BACK;
@@ -89,6 +97,39 @@ void Renderer::render(const Scene& scene)
             glDisable(GL_CULL_FACE);
         }
         glDisable(GL_POLYGON_OFFSET_FILL);
+        if (targetWidth_ > 0 && targetHeight_ > 0) {
+            glViewport(0, 0, targetWidth_, targetHeight_);
+        } else {
+            glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        }
+    }
+
+    if (pointShadowCount > 0) {
+        const GLboolean cullFaceWasEnabled = glIsEnabled(GL_CULL_FACE);
+        GLint previousCullFace = GL_BACK;
+        glGetIntegerv(GL_CULL_FACE_MODE, &previousCullFace);
+        glDisable(GL_CULL_FACE);
+
+        pointDepthShader_->use();
+        pointDepthShader_->setFloat("uFarPlane", pointShadowFarPlane_);
+        for (int lightIndex = 0; lightIndex < pointShadowCount; ++lightIndex) {
+            const glm::vec3 lightPos = lightManager_->pointLights[lightIndex].position;
+            pointDepthShader_->setVec3("uLightPos", lightPos);
+            const auto matrices = pointShadowMaps_[lightIndex]->matrices(lightPos, pointShadowFarPlane_);
+            for (int face = 0; face < 6; ++face) {
+                pointShadowMaps_[lightIndex]->bindFace(face);
+                pointDepthShader_->setMat4("uShadowMatrix", matrices[face]);
+                scene.drawAll(*pointDepthShader_, true, nullptr, true);
+            }
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, targetFramebuffer_);
+        if (cullFaceWasEnabled) {
+            glCullFace(previousCullFace);
+            glEnable(GL_CULL_FACE);
+        } else {
+            glDisable(GL_CULL_FACE);
+        }
         if (targetWidth_ > 0 && targetHeight_ > 0) {
             glViewport(0, 0, targetWidth_, targetHeight_);
         } else {
@@ -129,6 +170,14 @@ void Renderer::render(const Scene& scene)
     }
     litShader_.setInt("uApplyWindowFalloff", directionalShadowsEnabled_ && sceneBoundsValid_ ? 1 : 0);
     shadowMap_.bindRead(static_cast<GLuint>(kShadowMapUnit));
+    litShader_.setInt("uPointShadowCount", pointShadowCount);
+    litShader_.setFloat("uPointShadowFarPlane", pointShadowFarPlane_);
+    for (int i = 0; i < kMaxPointShadowMaps; ++i) {
+        litShader_.setInt("pointShadowMaps[" + std::to_string(i) + "]", kPointShadowBaseUnit + i);
+    }
+    for (int i = 0; i < pointShadowCount; ++i) {
+        pointShadowMaps_[i]->bindRead(static_cast<GLuint>(kPointShadowBaseUnit + i));
+    }
 
     if (lightManager_ != nullptr) {
         lightManager_->sendToShader(litShader_.id());

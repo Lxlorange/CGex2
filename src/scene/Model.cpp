@@ -174,10 +174,10 @@ void Model::emitProgress(float normalized, const char* status)
     progressCb_(std::clamp(normalized, 0.0f, 1.0f), status ? status : "");
 }
 
-void Model::drawGeometryOnly() const
+void Model::drawGeometryOnly(bool skipEmissive) const
 {
     for (const Mesh& mesh : meshes_) {
-        if (!mesh.isTransparent()) {
+        if (!mesh.isTransparent() && (!skipEmissive || !mesh.isEmissive())) {
             mesh.drawDirect();
         }
     }

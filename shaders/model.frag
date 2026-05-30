@@ -34,7 +34,15 @@ uniform DirLight dirLight;
 #define MAX_POINT_LIGHTS 10
 uniform PointLight pointLights[MAX_POINT_LIGHTS];
 uniform int numPointLights;
+#define MAX_POINT_SHADOWS 8
+uniform samplerCube pointShadowMaps[MAX_POINT_SHADOWS];
+uniform int uPointShadowCount;
+uniform float uPointShadowFarPlane;
+uniform float uPointShadowStrength;
+uniform int uPointShadowsEnabled;
 uniform SpotLight spotLight;
+uniform float uBulbDownwardInnerCos;
+uniform float uBulbDownwardOuterCos;
 
 uniform int uPointLightsOn;
 uniform vec3 globalAmbient;
@@ -118,6 +126,42 @@ float directionalShadow(vec4 fragPosLightSpace, vec3 norm, vec3 lightDirToSun)
     return mix(1.0 - clamp(uShadowStrength, 0.0, 1.0), 1.0, 1.0 - shadow);
 }
 
+float pointShadow(int index, vec3 fragPos, vec3 lightPos, vec3 normal)
+{
+    if (uPointShadowsEnabled == 0 || index >= uPointShadowCount || index >= MAX_POINT_SHADOWS) {
+        return 1.0;
+    }
+
+    vec3 fragToLight = fragPos - lightPos;
+    float currentDepth = length(fragToLight);
+    if (currentDepth >= uPointShadowFarPlane) {
+        return 1.0;
+    }
+
+    vec3 lightToFrag = normalize(fragToLight);
+    float ndotl = max(dot(normal, -lightToFrag), 0.0);
+    float bias = max(0.055 * (1.0 - ndotl), 0.018);
+    float diskRadius = 0.025 + currentDepth / uPointShadowFarPlane * 0.035;
+
+    vec3 offsets[6] = vec3[](
+        vec3( 1.0,  0.0,  0.0),
+        vec3(-1.0,  0.0,  0.0),
+        vec3( 0.0,  1.0,  0.0),
+        vec3( 0.0, -1.0,  0.0),
+        vec3( 0.0,  0.0,  1.0),
+        vec3( 0.0,  0.0, -1.0)
+    );
+
+    float shadow = 0.0;
+    for (int i = 0; i < 6; ++i) {
+        float closestDepth = texture(pointShadowMaps[index], fragToLight + offsets[i] * diskRadius).r;
+        closestDepth *= uPointShadowFarPlane;
+        shadow += currentDepth - bias > closestDepth ? 1.0 : 0.0;
+    }
+    shadow /= 6.0;
+    return mix(1.0 - clamp(uPointShadowStrength, 0.0, 1.0), 1.0, 1.0 - shadow);
+}
+
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir, vec3 baseColor, float shadow, float wallSpec)
 {
     vec3 lightDir = normalize(-light.direction);
@@ -132,13 +176,18 @@ vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir, vec3 baseColor, flo
     return ambient + shadow * (diffuse + specular);
 }
 
-vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir, vec3 baseColor, float wallSpec)
+vec3 CalcPointLight(PointLight light, int lightIndex, vec3 normal, vec3 fragPos, vec3 viewDir, vec3 baseColor, float wallSpec)
 {
     vec3 toLight = light.position - fragPos;
     float distance = length(toLight);
     vec3 lightDir = normalize(toLight);
 
     float attenuation = 1.0 / (distance * distance + 0.001);
+    vec3 fromLightToFrag = -lightDir;
+    float downward = dot(fromLightToFrag, vec3(0.0, -1.0, 0.0));
+    float shadeLimit = smoothstep(uBulbDownwardOuterCos, uBulbDownwardInnerCos, downward);
+    attenuation *= mix(0.18, 1.0, shadeLimit);
+    float shadow = pointShadow(lightIndex, fragPos, light.position, normal);
 
     float diff = max(dot(normal, lightDir), 0.0);
     vec3 halfwayDir = normalize(lightDir + viewDir);
@@ -147,7 +196,7 @@ vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir, v
     vec3 ambient = light.color * 0.025 * baseColor * attenuation;
     vec3 diffuse = light.color * diff * baseColor * attenuation;
     vec3 specular = light.color * spec * uMaterialSpecular * wallSpec * attenuation;
-    return ambient + diffuse + specular;
+    return ambient + shadow * (diffuse + specular);
 }
 
 vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir, vec3 baseColor, float wallSpec)
@@ -233,7 +282,7 @@ void main()
 
     if (uPointLightsOn == 1) {
         for (int i = 0; i < numPointLights; ++i) {
-            result += CalcPointLight(pointLights[i], norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
+            result += CalcPointLight(pointLights[i], i, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
         }
     }
 
@@ -242,13 +291,9 @@ void main()
     if (uHasEmissiveMap) {
         rawEmissive *= pow(texture(texture_emissive1, fsIn.texCoord).rgb, vec3(2.2));
     }
-    float emissiveLum = dot(rawEmissive, vec3(0.299, 0.587, 0.114));
-    float emissiveMask = smoothstep(0.04, 0.18, emissiveLum);
     float emissionScale = max(uLampEmissionScale * uEmissiveStrengthMultiplier, 0.0);
     vec3 emissive = rawEmissive * emissionScale;
-    vec3 emissiveDriven = emissive * 7.5;
-    result = mix(result, result * clamp(emissionScale, 0.0, 1.0) + emissiveDriven, emissiveMask);
-    result += emissive * 0.35;
+    result += emissive * 5.0;
 
     FragColor = vec4(max(result, vec3(0.0)), alpha);
 }

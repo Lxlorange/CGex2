@@ -3,13 +3,18 @@
 #include <glm/glm.hpp>
 #include "render/Shader.h"
 #include "render/ShadowMap.h"
+#include "render/PointShadowMap.h"
 #include "render/LightManager.h"
 #include "core/Camera.h"
 #include "scene/Scene.h"
 
+#include <memory>
+#include <vector>
+
 class Renderer {
 public:
     Renderer(Shader& litShader, Shader& depthShader, Camera& camera);
+    void setPointDepthShader(Shader* shader) { pointDepthShader_ = shader; }
 
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
@@ -34,11 +39,16 @@ private:
     Shader& depthShader_;
     Camera& camera_;
     ShadowMap shadowMap_;
+    Shader* pointDepthShader_ = nullptr;
+    std::vector<std::unique_ptr<PointShadowMap>> pointShadowMaps_;
     const LightManager* lightManager_ = nullptr;
     glm::vec3 lightDir_{-0.8f, -1.0f, -0.3f};
     bool directionalShadowsEnabled_ = true;
     float shadowStrength_ = 0.72f;
     static constexpr int kShadowMapUnit = 3;
+    static constexpr int kPointShadowBaseUnit = 4;
+    static constexpr int kMaxPointShadowMaps = 8;
+    float pointShadowFarPlane_ = 12.0f;
     GLuint targetFramebuffer_ = 0;
     int targetWidth_ = 0;
     int targetHeight_ = 0;

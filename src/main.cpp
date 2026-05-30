@@ -349,6 +349,8 @@ int main()
     const std::string fragPath = resolvePath({"shaders/model.frag"});
     const std::string depthVertPath = resolvePath({"shaders/depth.vert"});
     const std::string depthFragPath = resolvePath({"shaders/depth.frag"});
+    const std::string pointDepthVertPath = resolvePath({"shaders/point_depth.vert"});
+    const std::string pointDepthFragPath = resolvePath({"shaders/point_depth.frag"});
     const std::string dbgVert = resolvePath({"shaders/debug_line.vert"});
     const std::string dbgFrag = resolvePath({"shaders/debug_line.frag"});
     const std::string fullscreenVert = resolvePath({"shaders/fullscreen.vert"});
@@ -357,6 +359,7 @@ int main()
     const std::string compositeFrag = resolvePath({"shaders/hdr_composite.frag"});
     const std::string lightingConfigPath = resolvePath({"config/lighting_config.json"});
     if (vertPath.empty() || fragPath.empty() || depthVertPath.empty() || depthFragPath.empty()
+        || pointDepthVertPath.empty() || pointDepthFragPath.empty()
         || dbgVert.empty() || dbgFrag.empty() || fullscreenVert.empty() || brightFrag.empty()
         || blurFrag.empty() || compositeFrag.empty()) {
         std::cerr << "Required shader files not found.\n";
@@ -366,11 +369,12 @@ int main()
 
     Shader shader(vertPath.c_str(), fragPath.c_str());
     Shader depthShader(depthVertPath.c_str(), depthFragPath.c_str());
+    Shader pointDepthShader(pointDepthVertPath.c_str(), pointDepthFragPath.c_str());
     DebugAabbDrawer debugDrawer(Shader(dbgVert.c_str(), dbgFrag.c_str()));
     Shader brightShader(fullscreenVert.c_str(), brightFrag.c_str());
     Shader blurShader(fullscreenVert.c_str(), blurFrag.c_str());
     Shader compositeShader(fullscreenVert.c_str(), compositeFrag.c_str());
-    if (!shader.isValid() || !depthShader.isValid() || !debugDrawer.shader().isValid()
+    if (!shader.isValid() || !depthShader.isValid() || !pointDepthShader.isValid() || !debugDrawer.shader().isValid()
         || !brightShader.isValid() || !blurShader.isValid() || !compositeShader.isValid()) {
         std::cerr << "Shader compilation failed.\n";
         shutdownImGui();
@@ -446,6 +450,7 @@ int main()
     }
 
     Renderer renderer(shader, depthShader, app.camera());
+    renderer.setPointDepthShader(&pointDepthShader);
     renderer.setLightManager(&lightManager);
     renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
     HDRFramebuffer hdrFramebuffer;
@@ -495,6 +500,10 @@ int main()
         ImGui::SliderFloat("Bloom Strength", &lightManager.tuning.bloomStrength, 0.0f, 2.5f);
         ImGui::SliderFloat("Emissive Boost", &lightManager.tuning.emissiveStrengthMultiplier, 0.0f, 8.0f);
         ImGui::SliderFloat("Bulb Light Intensity", &lightManager.tuning.bulbLightIntensity, 0.0f, 120.0f);
+        ImGui::Checkbox("Point Shadows", &lightManager.tuning.pointShadowsEnabled);
+        ImGui::SliderFloat("Point Shadow Strength", &lightManager.tuning.pointShadowStrength, 0.0f, 1.0f);
+        ImGui::SliderFloat("Shade Inner", &lightManager.tuning.bulbDownwardInnerCos, -1.0f, 1.0f);
+        ImGui::SliderFloat("Shade Outer", &lightManager.tuning.bulbDownwardOuterCos, -1.0f, 1.0f);
         ImGui::ColorEdit3("Bulb Light Color", &lightManager.tuning.bulbLightColor[0]);
         ImGui::DragFloat3("Sun Direction", &lightManager.sunLight.direction[0], 0.02f, -1.0f, 1.0f);
         if (glm::dot(lightManager.sunLight.direction, lightManager.sunLight.direction) < 0.0001f) {

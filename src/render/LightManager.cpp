@@ -107,6 +107,10 @@ bool LightManager::loadConfig(const std::string& path)
             const auto& bulb = data.at("bulb_glow");
             tuning.emissiveStrengthMultiplier = bulb.value("emissive_strength_multiplier", tuning.emissiveStrengthMultiplier);
             tuning.bulbLightIntensity = bulb.value("point_light_intensity", tuning.bulbLightIntensity);
+            tuning.bulbDownwardInnerCos = bulb.value("downward_inner_cos", tuning.bulbDownwardInnerCos);
+            tuning.bulbDownwardOuterCos = bulb.value("downward_outer_cos", tuning.bulbDownwardOuterCos);
+            tuning.pointShadowsEnabled = bulb.value("point_shadows_enabled", tuning.pointShadowsEnabled);
+            tuning.pointShadowStrength = bulb.value("point_shadow_strength", tuning.pointShadowStrength);
             if (bulb.contains("point_light_color")) {
                 tuning.bulbLightColor = readVec3(bulb.at("point_light_color"), "bulb_glow.point_light_color");
             }
@@ -169,6 +173,10 @@ bool LightManager::saveConfig(const std::string& path) const
     data["bulb_glow"] = {
         { "emissive_strength_multiplier", tuning.emissiveStrengthMultiplier },
         { "point_light_intensity", tuning.bulbLightIntensity },
+        { "downward_inner_cos", tuning.bulbDownwardInnerCos },
+        { "downward_outer_cos", tuning.bulbDownwardOuterCos },
+        { "point_shadows_enabled", tuning.pointShadowsEnabled },
+        { "point_shadow_strength", tuning.pointShadowStrength },
         { "point_light_color", writeVec3(tuning.bulbLightColor) },
     };
 
@@ -199,6 +207,10 @@ void LightManager::sendToShader(unsigned int shaderID) const
 
     const int numLights = std::min(static_cast<int>(pointLights.size()), kMaxPointLights);
     glUniform1i(glGetUniformLocation(shaderID, "numPointLights"), numLights);
+    setFloat(shaderID, "uBulbDownwardInnerCos", tuning.bulbDownwardInnerCos);
+    setFloat(shaderID, "uBulbDownwardOuterCos", tuning.bulbDownwardOuterCos);
+    glUniform1i(glGetUniformLocation(shaderID, "uPointShadowsEnabled"), tuning.pointShadowsEnabled ? 1 : 0);
+    setFloat(shaderID, "uPointShadowStrength", tuning.pointShadowStrength);
 
     for (int i = 0; i < numLights; ++i) {
         const std::string base = "pointLights[" + std::to_string(i) + "].";

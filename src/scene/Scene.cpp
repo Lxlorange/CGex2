@@ -52,7 +52,8 @@ void Scene::loadAll(const std::function<void(float, const char*)>& onProgress)
     }
 }
 
-void Scene::drawAll(Shader& shader, bool geometryOnly, const glm::vec3* viewPosition) const
+void Scene::drawAll(Shader& shader, bool geometryOnly, const glm::vec3* viewPosition,
+                    bool skipEmissiveGeometry) const
 {
     std::vector<TransparentMeshDraw> transparentDraws;
 
@@ -65,7 +66,7 @@ void Scene::drawAll(Shader& shader, bool geometryOnly, const glm::vec3* viewPosi
         const glm::mat4 modelMatrix = entry.transform.matrix();
         shader.setMat4("uModel", modelMatrix);
         if (geometryOnly) {
-            it->second->drawGeometryOnly();
+            it->second->drawGeometryOnly(skipEmissiveGeometry);
         } else if (viewPosition != nullptr) {
             it->second->drawOpaque(shader);
             it->second->appendTransparentDraws(modelMatrix, *viewPosition, transparentDraws);

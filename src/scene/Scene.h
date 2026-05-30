@@ -21,7 +21,8 @@ class Scene {
 public:
     void addModel(const ModelEntry& entry) { entries_.push_back(entry); }
     void loadAll(const std::function<void(float normalized, const char* status)>& onProgress = {});
-    void drawAll(class Shader& shader, bool geometryOnly = false, const glm::vec3* viewPosition = nullptr) const;
+    void drawAll(class Shader& shader, bool geometryOnly = false, const glm::vec3* viewPosition = nullptr,
+                 bool skipEmissiveGeometry = false) const;
 
     void createVertexArraysForCurrentContext();
     void releaseVertexArraysForCurrentContext();

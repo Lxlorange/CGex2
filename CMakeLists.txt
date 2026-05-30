@@ -135,6 +135,8 @@ add_executable(ClassroomRenderer
     src/render/HDRFramebuffer.h
     src/render/BloomRenderer.cpp
     src/render/BloomRenderer.h
+    src/render/PointShadowMap.cpp
+    src/render/PointShadowMap.h
     src/render/ShadowMap.cpp
     src/render/ShadowMap.h
     src/render/Material.h
