@@ -36,6 +36,10 @@ struct RenderTuning {
     float bulbDownwardOuterCos = -0.10f;
     bool pointShadowsEnabled = true;
     float pointShadowStrength = 0.88f;
+    bool ssaoEnabled = true;
+    float ssaoRadius = 0.65f;
+    float ssaoBias = 0.025f;
+    float ssaoStrength = 0.85f;
 };
 
 class LightManager {

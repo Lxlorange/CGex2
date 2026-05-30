@@ -2,7 +2,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <array>
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 void Renderer::toggleDayNight()
@@ -47,6 +49,14 @@ void Renderer::render(const Scene& scene)
     }
     const bool haveBounds = sceneBoundsValid_;
 
+    int w = targetWidth_ > 0 ? targetWidth_ : viewport[2];
+    int h = targetHeight_ > 0 ? targetHeight_ : viewport[3];
+    if (w <= 0 || h <= 0) {
+        GLFWwindow* win = glfwGetCurrentContext();
+        if (win) glfwGetFramebufferSize(win, &w, &h);
+    }
+    if (h <= 0) h = 1;
+
     const bool wantShadowPass = directionalShadowsEnabled_ && haveBounds && depthShader_.isValid();
     if (!printedShadowStatus) {
         if (wantShadowPass) {
@@ -63,12 +73,16 @@ void Renderer::render(const Scene& scene)
 
     glm::mat4 lightSpace(1.0f);
     if (wantShadowPass) {
-        lightSpace = ShadowMap::computeLightSpaceMatrix(sceneBmin_, sceneBmax_, glm::normalize(lightDir_));
+        lightSpace = ShadowMap::computeLightSpaceMatrixFromFrustum(
+            currentCameraFrustumCorners(w, h), glm::normalize(lightDir_));
     }
 
     const int pointShadowCount = (lightManager_ != nullptr && pointDepthShader_ != nullptr && pointDepthShader_->isValid())
         ? std::min({static_cast<int>(lightManager_->pointLights.size()), kMaxPointShadowMaps, 8})
         : 0;
+    if (pointShadowCount > 0) {
+        pointShadowFarPlane_ = computePointShadowFarPlane();
+    }
     while (static_cast<int>(pointShadowMaps_.size()) < pointShadowCount) {
         pointShadowMaps_.push_back(std::make_unique<PointShadowMap>(384));
     }
@@ -138,14 +152,6 @@ void Renderer::render(const Scene& scene)
     }
 
     litShader_.use();
-    int w = targetWidth_ > 0 ? targetWidth_ : viewport[2];
-    int h = targetHeight_ > 0 ? targetHeight_ : viewport[3];
-    if (w <= 0 || h <= 0) {
-        GLFWwindow* win = glfwGetCurrentContext();
-        if (win) glfwGetFramebufferSize(win, &w, &h);
-    }
-    if (h <= 0) h = 1;
-
     litShader_.setMat4("uProjection", glm::perspective(
         glm::radians(camera_.Zoom),
         static_cast<float>(w) / static_cast<float>(h), 0.1f, 2000.0f));
@@ -158,9 +164,6 @@ void Renderer::render(const Scene& scene)
     litShader_.setInt("uUseDirectionalShadow", wantShadowPass ? 1 : 0);
     litShader_.setFloat("uShadowStrength", shadowStrength_);
     litShader_.setInt("shadowMap", kShadowMapUnit);
-    litShader_.setVec2("uShadowTexelSize", glm::vec2(
-        1.0f / static_cast<float>(shadowMap_.width()),
-        1.0f / static_cast<float>(shadowMap_.height())));
     if (sceneBoundsValid_) {
         litShader_.setVec3("uSceneMin", sceneBmin_);
         litShader_.setVec3("uSceneMax", sceneBmax_);
@@ -178,6 +181,12 @@ void Renderer::render(const Scene& scene)
     for (int i = 0; i < pointShadowCount; ++i) {
         pointShadowMaps_[i]->bindRead(static_cast<GLuint>(kPointShadowBaseUnit + i));
     }
+    litShader_.setInt("uUseSSAO", (ssaoEnabled_ && ssaoTexture_ != 0) ? 1 : 0);
+    litShader_.setFloat("uSSAOStrength", ssaoStrength_);
+    litShader_.setInt("uSSAO", kSSAOTextureUnit);
+    glActiveTexture(GL_TEXTURE0 + kSSAOTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, ssaoTexture_);
+    glActiveTexture(GL_TEXTURE0);
 
     if (lightManager_ != nullptr) {
         lightManager_->sendToShader(litShader_.id());
@@ -187,4 +196,46 @@ void Renderer::render(const Scene& scene)
     }
 
     scene.drawAll(litShader_, false, &camera_.Position);
+}
+
+std::array<glm::vec3, 8> Renderer::currentCameraFrustumCorners(int width, int height) const
+{
+    const float aspect = static_cast<float>(std::max(width, 1)) / static_cast<float>(std::max(height, 1));
+    const glm::mat4 projection = glm::perspective(glm::radians(camera_.Zoom), aspect, 0.1f, 2000.0f);
+    const glm::mat4 view = camera_.GetViewMatrix();
+    const glm::mat4 invViewProjection = glm::inverse(projection * view);
+
+    std::array<glm::vec3, 8> corners{};
+    int index = 0;
+    for (int x = 0; x < 2; ++x) {
+        for (int y = 0; y < 2; ++y) {
+            for (int z = 0; z < 2; ++z) {
+                const glm::vec4 ndc(
+                    x == 0 ? -1.0f : 1.0f,
+                    y == 0 ? -1.0f : 1.0f,
+                    z == 0 ? -1.0f : 1.0f,
+                    1.0f);
+                glm::vec4 world = invViewProjection * ndc;
+                const float invW = std::abs(world.w) > 1e-6f ? 1.0f / world.w : 1.0f;
+                corners[index++] = glm::vec3(world) * invW;
+            }
+        }
+    }
+    return corners;
+}
+
+float Renderer::computePointShadowFarPlane() const
+{
+    if (lightManager_ == nullptr) {
+        return pointShadowFarPlane_;
+    }
+
+    float maxIntensity = 0.0f;
+    for (const PointLight& light : lightManager_->pointLights) {
+        maxIntensity = std::max(maxIntensity, glm::length(light.color * lightManager_->pointLightStrength));
+    }
+
+    const float visibilityCutoff = 0.025f;
+    const float radius = std::sqrt(std::max(maxIntensity, 0.0f) / visibilityCutoff);
+    return std::clamp(radius, 4.0f, 24.0f);
 }

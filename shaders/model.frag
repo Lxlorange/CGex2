@@ -47,15 +47,17 @@ uniform float uBulbDownwardOuterCos;
 uniform int uPointLightsOn;
 uniform vec3 globalAmbient;
 
-uniform sampler2D shadowMap;
+uniform sampler2DShadow shadowMap;
 uniform int uUseDirectionalShadow;
-uniform vec2 uShadowTexelSize;
 uniform float uShadowStrength;
 uniform float uLampEmissionScale;
 uniform float uEmissiveStrengthMultiplier;
 uniform vec3 uSceneMin;
 uniform vec3 uSceneMax;
 uniform int uApplyWindowFalloff;
+uniform sampler2D uSSAO;
+uniform int uUseSSAO;
+uniform float uSSAOStrength;
 
 in VS_OUT {
     vec3 normal;
@@ -107,23 +109,22 @@ float directionalShadow(vec4 fragPosLightSpace, vec3 norm, vec3 lightDirToSun)
     if (projCoords.z > 1.0) {
         return 1.0;
     }
+    if (projCoords.z < 0.0) {
+        return 1.0;
+    }
     if (projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 || projCoords.y > 1.0) {
         return 1.0;
     }
 
     vec3 lightDir = normalize(-lightDirToSun);
-    float ndotl = max(dot(norm, lightDir), 0.0);
-    float bias = max(0.0009 * (1.0 - ndotl), 0.00018);
+    float ndotl = clamp(dot(norm, lightDir), 0.0, 1.0);
+    float safeCos = max(ndotl, 0.05);
+    float slopeTan = sqrt(max(1.0 - safeCos * safeCos, 0.0)) / safeCos;
+    float bias = clamp(0.00028 * slopeTan, 0.00012, 0.0025);
 
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float closestDepth = texture(shadowMap, projCoords.xy + vec2(float(x), float(y)) * uShadowTexelSize).r;
-            shadow += projCoords.z - bias > closestDepth ? 1.0 : 0.0;
-        }
-    }
-    shadow /= 9.0;
-    return mix(1.0 - clamp(uShadowStrength, 0.0, 1.0), 1.0, 1.0 - shadow);
+    vec4 shadowCoord = vec4(projCoords.xy, projCoords.z - bias, 1.0);
+    float visibility = textureProj(shadowMap, shadowCoord);
+    return mix(1.0 - clamp(uShadowStrength, 0.0, 1.0), 1.0, visibility);
 }
 
 float pointShadow(int index, vec3 fragPos, vec3 lightPos, vec3 normal)
@@ -140,7 +141,9 @@ float pointShadow(int index, vec3 fragPos, vec3 lightPos, vec3 normal)
 
     vec3 lightToFrag = normalize(fragToLight);
     float ndotl = max(dot(normal, -lightToFrag), 0.0);
-    float bias = max(0.055 * (1.0 - ndotl), 0.018);
+    float safeCos = max(ndotl, 0.05);
+    float slopeTan = sqrt(max(1.0 - safeCos * safeCos, 0.0)) / safeCos;
+    float bias = clamp(0.025 * slopeTan, 0.012, 0.12);
     float diskRadius = 0.025 + currentDepth / uPointShadowFarPlane * 0.035;
 
     vec3 offsets[6] = vec3[](
@@ -269,9 +272,15 @@ void main()
         windowSkylight = vec3(0.42, 0.55, 0.68) * facing * vert * (nearBeam * nearBeam) * 0.22;
     }
 
-    vec3 result = globalAmbient * baseColor;
+    float ssao = 1.0;
+    if (uUseSSAO == 1) {
+        ssao = texture(uSSAO, gl_FragCoord.xy / vec2(textureSize(uSSAO, 0))).r;
+        ssao = mix(1.0, ssao, clamp(uSSAOStrength, 0.0, 2.0));
+    }
+
+    vec3 result = globalAmbient * baseColor * ssao;
     result += CalcDirLight(dirLight, norm, viewDir, baseColor, dirShadow, wallSpec);
-    result += windowSkylight * baseColor * mix(0.35, 1.0, dirShadow);
+    result += windowSkylight * baseColor * mix(0.35, 1.0, dirShadow) * mix(ssao, 1.0, 0.45);
 
     if (uApplyWindowFalloff == 1) {
         vec3 inc = -normalize(dirLight.direction);

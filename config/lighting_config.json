@@ -189,6 +189,10 @@
         "bloom_enabled": true,
         "bloom_strength": 0.25099998712539673,
         "bloom_threshold": 1.2979999780654907,
-        "exposure": 1.3739999532699585
+        "exposure": 1.3739999532699585,
+        "ssao_bias": 0.02500000037252903,
+        "ssao_enabled": true,
+        "ssao_radius": 0.6499999761581421,
+        "ssao_strength": 0.8500000238418579
     }
 }

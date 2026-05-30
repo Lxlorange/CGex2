@@ -101,6 +101,10 @@ bool LightManager::loadConfig(const std::string& path)
             tuning.bloomThreshold = post.value("bloom_threshold", tuning.bloomThreshold);
             tuning.bloomStrength = post.value("bloom_strength", tuning.bloomStrength);
             tuning.bloomBlurIterations = post.value("bloom_blur_iterations", tuning.bloomBlurIterations);
+            tuning.ssaoEnabled = post.value("ssao_enabled", tuning.ssaoEnabled);
+            tuning.ssaoRadius = post.value("ssao_radius", tuning.ssaoRadius);
+            tuning.ssaoBias = post.value("ssao_bias", tuning.ssaoBias);
+            tuning.ssaoStrength = post.value("ssao_strength", tuning.ssaoStrength);
         }
 
         if (data.contains("bulb_glow")) {
@@ -168,6 +172,10 @@ bool LightManager::saveConfig(const std::string& path) const
         { "bloom_threshold", tuning.bloomThreshold },
         { "bloom_strength", tuning.bloomStrength },
         { "bloom_blur_iterations", tuning.bloomBlurIterations },
+        { "ssao_enabled", tuning.ssaoEnabled },
+        { "ssao_radius", tuning.ssaoRadius },
+        { "ssao_bias", tuning.ssaoBias },
+        { "ssao_strength", tuning.ssaoStrength },
     };
 
     data["bulb_glow"] = {

@@ -9,6 +9,7 @@
 #include "scene/Scene.h"
 
 #include <memory>
+#include <array>
 #include <vector>
 
 class Renderer {
@@ -25,6 +26,12 @@ public:
     void setDirectionalShadowsEnabled(bool enabled) { directionalShadowsEnabled_ = enabled; }
     void setShadowStrength(float strength) { shadowStrength_ = strength; }
     void setRenderTarget(GLuint framebuffer, int width, int height);
+    void setSSAO(GLuint texture, bool enabled, float strength)
+    {
+        ssaoTexture_ = texture;
+        ssaoEnabled_ = enabled;
+        ssaoStrength_ = strength;
+    }
 
     void toggleLight() { lightOn_ = !lightOn_; }
     bool isLightOn() const { return lightOn_; }
@@ -48,7 +55,11 @@ private:
     static constexpr int kShadowMapUnit = 3;
     static constexpr int kPointShadowBaseUnit = 4;
     static constexpr int kMaxPointShadowMaps = 8;
+    static constexpr int kSSAOTextureUnit = 12;
     float pointShadowFarPlane_ = 12.0f;
+    GLuint ssaoTexture_ = 0;
+    bool ssaoEnabled_ = false;
+    float ssaoStrength_ = 0.0f;
     GLuint targetFramebuffer_ = 0;
     int targetWidth_ = 0;
     int targetHeight_ = 0;
@@ -61,4 +72,7 @@ private:
     bool dayMode_ = true;
     float ambientStrength_ = 0.25f;
     glm::vec3 ambientColor_{1.0f};
+
+    std::array<glm::vec3, 8> currentCameraFrustumCorners(int width, int height) const;
+    float computePointShadowFarPlane() const;
 };

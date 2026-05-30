@@ -4,6 +4,8 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
+#include <array>
+
 class ShadowMap {
 public:
     ShadowMap(int width, int height);
@@ -22,6 +24,8 @@ public:
     void bindRead(GLuint textureUnit);
 
     static glm::mat4 computeLightSpaceMatrix(const glm::vec3& sceneMin, const glm::vec3& sceneMax,
+        const glm::vec3& lightDirectionUniform);
+    static glm::mat4 computeLightSpaceMatrixFromFrustum(const std::array<glm::vec3, 8>& frustumCorners,
         const glm::vec3& lightDirectionUniform);
 
 private:

@@ -14,6 +14,7 @@
 #include "render/LightManager.h"
 #include "render/Renderer.h"
 #include "render/Shader.h"
+#include "render/SSAORenderer.h"
 #include "scene/Scene.h"
 
 #include <algorithm>
@@ -357,11 +358,16 @@ int main()
     const std::string brightFrag = resolvePath({"shaders/bright_extract.frag"});
     const std::string blurFrag = resolvePath({"shaders/gaussian_blur.frag"});
     const std::string compositeFrag = resolvePath({"shaders/hdr_composite.frag"});
+    const std::string ssaoGeometryVert = resolvePath({"shaders/ssao_geometry.vert"});
+    const std::string ssaoGeometryFrag = resolvePath({"shaders/ssao_geometry.frag"});
+    const std::string ssaoFrag = resolvePath({"shaders/ssao.frag"});
+    const std::string ssaoBlurFrag = resolvePath({"shaders/ssao_blur.frag"});
     const std::string lightingConfigPath = resolvePath({"config/lighting_config.json"});
     if (vertPath.empty() || fragPath.empty() || depthVertPath.empty() || depthFragPath.empty()
         || pointDepthVertPath.empty() || pointDepthFragPath.empty()
         || dbgVert.empty() || dbgFrag.empty() || fullscreenVert.empty() || brightFrag.empty()
-        || blurFrag.empty() || compositeFrag.empty()) {
+        || blurFrag.empty() || compositeFrag.empty()
+        || ssaoGeometryVert.empty() || ssaoGeometryFrag.empty() || ssaoFrag.empty() || ssaoBlurFrag.empty()) {
         std::cerr << "Required shader files not found.\n";
         shutdownImGui();
         return -1;
@@ -374,8 +380,12 @@ int main()
     Shader brightShader(fullscreenVert.c_str(), brightFrag.c_str());
     Shader blurShader(fullscreenVert.c_str(), blurFrag.c_str());
     Shader compositeShader(fullscreenVert.c_str(), compositeFrag.c_str());
+    Shader ssaoGeometryShader(ssaoGeometryVert.c_str(), ssaoGeometryFrag.c_str());
+    Shader ssaoShader(fullscreenVert.c_str(), ssaoFrag.c_str());
+    Shader ssaoBlurShader(fullscreenVert.c_str(), ssaoBlurFrag.c_str());
     if (!shader.isValid() || !depthShader.isValid() || !pointDepthShader.isValid() || !debugDrawer.shader().isValid()
-        || !brightShader.isValid() || !blurShader.isValid() || !compositeShader.isValid()) {
+        || !brightShader.isValid() || !blurShader.isValid() || !compositeShader.isValid()
+        || !ssaoGeometryShader.isValid() || !ssaoShader.isValid() || !ssaoBlurShader.isValid()) {
         std::cerr << "Shader compilation failed.\n";
         shutdownImGui();
         return -1;
@@ -455,6 +465,7 @@ int main()
     renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
     HDRFramebuffer hdrFramebuffer;
     BloomRenderer bloomRenderer(brightShader, blurShader, compositeShader);
+    SSAORenderer ssaoRenderer(ssaoGeometryShader, ssaoShader, ssaoBlurShader, app.camera());
 
     LightingState lighting;
     bool showDemoColliders = false;
@@ -498,6 +509,10 @@ int main()
         ImGui::SliderFloat("Exposure", &lightManager.tuning.exposure, 0.2f, 3.0f);
         ImGui::SliderFloat("Bloom Threshold", &lightManager.tuning.bloomThreshold, 0.2f, 5.0f);
         ImGui::SliderFloat("Bloom Strength", &lightManager.tuning.bloomStrength, 0.0f, 2.5f);
+        ImGui::Checkbox("SSAO", &lightManager.tuning.ssaoEnabled);
+        ImGui::SliderFloat("SSAO Radius", &lightManager.tuning.ssaoRadius, 0.05f, 3.0f);
+        ImGui::SliderFloat("SSAO Bias", &lightManager.tuning.ssaoBias, 0.0f, 0.15f);
+        ImGui::SliderFloat("SSAO Strength", &lightManager.tuning.ssaoStrength, 0.0f, 2.0f);
         ImGui::SliderFloat("Emissive Boost", &lightManager.tuning.emissiveStrengthMultiplier, 0.0f, 8.0f);
         ImGui::SliderFloat("Bulb Light Intensity", &lightManager.tuning.bulbLightIntensity, 0.0f, 120.0f);
         ImGui::Checkbox("Point Shadows", &lightManager.tuning.pointShadowsEnabled);
@@ -537,6 +552,10 @@ int main()
         bloomRenderer.threshold = lightManager.tuning.bloomThreshold;
         bloomRenderer.strength = lightManager.tuning.bloomStrength;
         bloomRenderer.blurIterations = lightManager.tuning.bloomBlurIterations;
+        ssaoRenderer.enabled = lightManager.tuning.ssaoEnabled;
+        ssaoRenderer.radius = lightManager.tuning.ssaoRadius;
+        ssaoRenderer.bias = lightManager.tuning.ssaoBias;
+        ssaoRenderer.strength = lightManager.tuning.ssaoStrength;
 
         int framebufferW = 0;
         int framebufferH = 0;
@@ -547,6 +566,8 @@ int main()
         }
         hdrFramebuffer.resize(framebufferW, framebufferH);
         bloomRenderer.resize(framebufferW, framebufferH);
+        ssaoRenderer.resize(framebufferW, framebufferH);
+        ssaoRenderer.render(scene);
         hdrFramebuffer.bind();
         if (lighting.isDay) {
             glClearColor(0.52f, 0.74f, 0.93f, 1.0f);
@@ -558,6 +579,7 @@ int main()
 
         renderer.setLightDirection(glm::normalize(lightManager.sunLight.direction));
         renderer.setShadowStrength(lightManager.tuning.shadowStrength);
+        renderer.setSSAO(ssaoRenderer.occlusionTexture(), ssaoRenderer.enabled && ssaoRenderer.isReady(), ssaoRenderer.strength);
         renderer.setRenderTarget(hdrFramebuffer.framebuffer(), hdrFramebuffer.width(), hdrFramebuffer.height());
         syncLightingUniforms(shader, renderer, cam, lighting, lightManager);
         shader.use();

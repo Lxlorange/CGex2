@@ -18,11 +18,12 @@ ShadowMap::ShadowMap(int width, int height)
     glGenTextures(1, &depthTexture_);
     glBindTexture(GL_TEXTURE_2D, depthTexture_);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width_, height_, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     const float border[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
 
@@ -114,5 +115,53 @@ glm::mat4 ShadowMap::computeLightSpaceMatrix(const glm::vec3& sceneMin, const gl
     const glm::mat4 lightProj = glm::ortho(minX - padXY, maxX + padXY, minY - padXY, maxY + padXY,
         zNear, zFar);
 
+    return lightProj * lightView;
+}
+
+glm::mat4 ShadowMap::computeLightSpaceMatrixFromFrustum(const std::array<glm::vec3, 8>& frustumCorners,
+    const glm::vec3& lightDirectionUniform)
+{
+    glm::vec3 center(0.0f);
+    for (const glm::vec3& corner : frustumCorners) {
+        center += corner;
+    }
+    center *= 1.0f / static_cast<float>(frustumCorners.size());
+
+    const glm::vec3 d = glm::normalize(lightDirectionUniform);
+    float radius = 0.0f;
+    for (const glm::vec3& corner : frustumCorners) {
+        radius = std::max(radius, glm::length(corner - center));
+    }
+    radius = std::max(radius, 1.0f);
+
+    glm::vec3 up(0.0f, 1.0f, 0.0f);
+    if (std::abs(glm::dot(d, up)) > 0.92f) {
+        up = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
+
+    const glm::vec3 eye = center - d * (radius * 2.0f);
+    const glm::mat4 lightView = glm::lookAt(eye, center, up);
+
+    float minX = 1e10f, maxX = -1e10f, minY = 1e10f, maxY = -1e10f, minZ = 1e10f, maxZ = -1e10f;
+    for (const glm::vec3& corner : frustumCorners) {
+        const glm::vec4 tr = lightView * glm::vec4(corner, 1.0f);
+        minX = std::min(minX, tr.x);
+        maxX = std::max(maxX, tr.x);
+        minY = std::min(minY, tr.y);
+        maxY = std::max(maxY, tr.y);
+        minZ = std::min(minZ, tr.z);
+        maxZ = std::max(maxZ, tr.z);
+    }
+
+    const float width = std::max(maxX - minX, 0.01f);
+    const float height = std::max(maxY - minY, 0.01f);
+    const float depth = std::max(maxZ - minZ, 0.01f);
+    const float padXY = std::max(std::max(width, height) * 0.08f, 0.25f);
+    const float padZ = std::max(depth * 0.25f, 1.0f);
+
+    const float zNear = std::max(0.05f, -maxZ - padZ);
+    const float zFar = std::max(zNear + 1.0f, -minZ + padZ);
+    const glm::mat4 lightProj = glm::ortho(minX - padXY, maxX + padXY, minY - padXY, maxY + padXY,
+        zNear, zFar);
     return lightProj * lightView;
 }
