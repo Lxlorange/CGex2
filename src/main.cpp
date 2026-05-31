@@ -594,7 +594,9 @@ int main()
         ImGui::SliderFloat("SSAO Bias", &lightManager.tuning.ssaoBias, 0.0f, 0.15f);
         ImGui::SliderFloat("SSAO Strength", &lightManager.tuning.ssaoStrength, 0.0f, 2.0f);
         ImGui::SliderFloat("Emissive Boost", &lightManager.tuning.emissiveStrengthMultiplier, 0.0f, 8.0f);
+        ImGui::SliderFloat("Emissive Surface", &lightManager.tuning.emissiveSurfaceScale, 0.0f, 1.0f);
         ImGui::SliderFloat("Bulb Light Intensity", &lightManager.tuning.bulbLightIntensity, 0.0f, 120.0f);
+        ImGui::SliderFloat("Light Vertical Offset", &lightManager.tuning.bulbLightVerticalOffset, -0.6f, 0.4f);
         ImGui::Checkbox("Point Shadows", &lightManager.tuning.pointShadowsEnabled);
         ImGui::SliderFloat("Point Shadow Strength", &lightManager.tuning.pointShadowStrength, 0.0f, 1.0f);
         ImGui::SliderFloat("Shade Inner", &lightManager.tuning.bulbDownwardInnerCos, -1.0f, 1.0f);
@@ -679,8 +681,6 @@ int main()
         renderer.setSSAO(ssaoRenderer.occlusionTexture(), ssaoRenderer.enabled && ssaoRenderer.isReady(), ssaoRenderer.strength);
         renderer.setRenderTarget(hdrFramebuffer.framebuffer(), hdrFramebuffer.width(), hdrFramebuffer.height());
         syncLightingUniforms(shader, renderer, cam, lighting, lightManager);
-        shader.use();
-        shader.setFloat("uEmissiveStrengthMultiplier", lightManager.tuning.emissiveStrengthMultiplier);
         renderer.render(scene);
         if (showSunMarker) {
             drawSunMarker(debugDrawer, app.window(), cam, lightManager.sunLight.direction);

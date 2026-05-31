@@ -24,6 +24,8 @@ PointShadowMap::PointShadowMap(int size)
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                           GL_TEXTURE_CUBE_MAP_POSITIVE_X, depthCubemap_, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         std::cerr << "[PointShadow] Framebuffer incomplete.\n";
     }

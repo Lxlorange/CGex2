@@ -111,8 +111,10 @@ bool LightManager::loadConfig(const std::string& path)
             const auto& bulb = data.at("bulb_glow");
             tuning.emissiveStrengthMultiplier = bulb.value("emissive_strength_multiplier", tuning.emissiveStrengthMultiplier);
             tuning.bulbLightIntensity = bulb.value("point_light_intensity", tuning.bulbLightIntensity);
+            tuning.bulbLightVerticalOffset = bulb.value("point_light_vertical_offset", tuning.bulbLightVerticalOffset);
             tuning.bulbDownwardInnerCos = bulb.value("downward_inner_cos", tuning.bulbDownwardInnerCos);
             tuning.bulbDownwardOuterCos = bulb.value("downward_outer_cos", tuning.bulbDownwardOuterCos);
+            tuning.emissiveSurfaceScale = bulb.value("emissive_surface_scale", tuning.emissiveSurfaceScale);
             tuning.pointShadowsEnabled = bulb.value("point_shadows_enabled", tuning.pointShadowsEnabled);
             tuning.pointShadowStrength = bulb.value("point_shadow_strength", tuning.pointShadowStrength);
             if (bulb.contains("point_light_color")) {
@@ -180,7 +182,9 @@ bool LightManager::saveConfig(const std::string& path) const
 
     data["bulb_glow"] = {
         { "emissive_strength_multiplier", tuning.emissiveStrengthMultiplier },
+        { "emissive_surface_scale", tuning.emissiveSurfaceScale },
         { "point_light_intensity", tuning.bulbLightIntensity },
+        { "point_light_vertical_offset", tuning.bulbLightVerticalOffset },
         { "downward_inner_cos", tuning.bulbDownwardInnerCos },
         { "downward_outer_cos", tuning.bulbDownwardOuterCos },
         { "point_shadows_enabled", tuning.pointShadowsEnabled },
@@ -217,15 +221,25 @@ void LightManager::sendToShader(unsigned int shaderID) const
     glUniform1i(glGetUniformLocation(shaderID, "numPointLights"), numLights);
     setFloat(shaderID, "uBulbDownwardInnerCos", tuning.bulbDownwardInnerCos);
     setFloat(shaderID, "uBulbDownwardOuterCos", tuning.bulbDownwardOuterCos);
+    setFloat(shaderID, "uEmissiveStrengthMultiplier", tuning.emissiveStrengthMultiplier);
+    setFloat(shaderID, "uEmissiveSurfaceScale", tuning.emissiveSurfaceScale);
     glUniform1i(glGetUniformLocation(shaderID, "uPointShadowsEnabled"), tuning.pointShadowsEnabled ? 1 : 0);
     setFloat(shaderID, "uPointShadowStrength", tuning.pointShadowStrength);
 
     for (int i = 0; i < numLights; ++i) {
         const std::string base = "pointLights[" + std::to_string(i) + "].";
-        setVec3(shaderID, base + "position", pointLights[i].position);
+        setVec3(shaderID, base + "position", effectivePointLightPosition(static_cast<std::size_t>(i)));
         setVec3(shaderID, base + "color", pointLights[i].color * pointLightStrength);
         setFloat(shaderID, base + "constant", pointLights[i].constant);
         setFloat(shaderID, base + "linear", pointLights[i].linear);
         setFloat(shaderID, base + "quadratic", pointLights[i].quadratic);
     }
+}
+
+glm::vec3 LightManager::effectivePointLightPosition(std::size_t index) const
+{
+    if (index >= pointLights.size()) {
+        return glm::vec3(0.0f);
+    }
+    return pointLights[index].position + glm::vec3(0.0f, tuning.bulbLightVerticalOffset, 0.0f);
 }

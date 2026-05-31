@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -30,8 +31,10 @@ struct RenderTuning {
     float bloomStrength = 0.5f;
     int bloomBlurIterations = 8;
     float emissiveStrengthMultiplier = 0.75f;
+    float emissiveSurfaceScale = 0.35f;
     glm::vec3 bulbLightColor{ 1.0f, 0.62f, 0.28f };
     float bulbLightIntensity = 8.0f;
+    float bulbLightVerticalOffset = 0.0f;
     float bulbDownwardInnerCos = 0.35f;
     float bulbDownwardOuterCos = -0.10f;
     bool pointShadowsEnabled = true;
@@ -55,4 +58,5 @@ public:
     bool loadConfig(const std::string& path);
     bool saveConfig(const std::string& path) const;
     void sendToShader(unsigned int shaderID) const;
+    glm::vec3 effectivePointLightPosition(std::size_t index) const;
 };

@@ -492,6 +492,14 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
         if (!emissiveTextures.empty() && glm::dot(materialData.emissive, materialData.emissive) <= 0.0001f) {
             materialData.emissive = glm::vec3(1.0f) * emissiveIntensity;
         }
+        if (!emissiveTextures.empty() || glm::dot(materialData.emissive, materialData.emissive) > 0.0001f) {
+            std::cout << "[Model] Light material debug: " << materialName
+                      << " emissive=(" << materialData.emissive.r << ", "
+                      << materialData.emissive.g << ", "
+                      << materialData.emissive.b << ")"
+                      << " emissiveTexture=" << (!emissiveTextures.empty() ? "yes" : "no")
+                      << '\n';
+        }
         auto normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());
         auto heightTextures = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);

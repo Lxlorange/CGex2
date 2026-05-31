@@ -52,6 +52,7 @@ uniform int uUseDirectionalShadow;
 uniform float uShadowStrength;
 uniform float uLampEmissionScale;
 uniform float uEmissiveStrengthMultiplier;
+uniform float uEmissiveSurfaceScale;
 uniform vec3 uSceneMin;
 uniform vec3 uSceneMax;
 uniform int uApplyWindowFalloff;
@@ -188,8 +189,10 @@ vec3 CalcPointLight(PointLight light, int lightIndex, vec3 normal, vec3 fragPos,
     float attenuation = 1.0 / (distance * distance + 0.001);
     vec3 fromLightToFrag = -lightDir;
     float downward = dot(fromLightToFrag, vec3(0.0, -1.0, 0.0));
-    float shadeLimit = smoothstep(uBulbDownwardOuterCos, uBulbDownwardInnerCos, downward);
-    attenuation *= mix(0.18, 1.0, shadeLimit);
+    float shadeOuter = min(uBulbDownwardOuterCos, uBulbDownwardInnerCos - 0.001);
+    float shadeInner = max(uBulbDownwardInnerCos, uBulbDownwardOuterCos + 0.001);
+    float shadeLimit = smoothstep(shadeOuter, shadeInner, downward);
+    attenuation *= shadeLimit;
     float shadow = pointShadow(lightIndex, fragPos, light.position, normal);
 
     float diff = max(dot(normal, lightDir), 0.0);
@@ -259,6 +262,8 @@ void main()
 
     vec3 towardSun = normalize(dirLight.direction);
     float dirShadow = directionalShadow(fsIn.fragPosLightSpace, norm, towardSun);
+    vec3 materialEmission = max(uMaterialEmissive, vec3(0.0));
+    float emissiveSurface = dot(materialEmission, materialEmission) > 0.0001 ? 1.0 : 0.0;
 
     vec3 windowSkylight = vec3(0.0);
     if (uApplyWindowFalloff == 1) {
@@ -278,31 +283,35 @@ void main()
         ssao = mix(1.0, ssao, clamp(uSSAOStrength, 0.0, 2.0));
     }
 
-    vec3 result = globalAmbient * baseColor * ssao;
-    result += CalcDirLight(dirLight, norm, viewDir, baseColor, dirShadow, wallSpec);
-    result += windowSkylight * baseColor * mix(0.35, 1.0, dirShadow) * mix(ssao, 1.0, 0.45);
+    vec3 result = vec3(0.0);
+    if (emissiveSurface < 0.5) {
+        result = globalAmbient * baseColor * ssao;
+        result += CalcDirLight(dirLight, norm, viewDir, baseColor, dirShadow, wallSpec);
+        result += windowSkylight * baseColor * mix(0.35, 1.0, dirShadow) * mix(ssao, 1.0, 0.45);
 
-    if (uApplyWindowFalloff == 1) {
-        vec3 inc = -normalize(dirLight.direction);
-        float ndotv = clamp(dot(norm, viewDir), 0.0, 1.0);
-        float rim = pow(1.0 - ndotv, 2.4) * max(dot(norm, inc), 0.0);
-        result += rim * baseColor * vec3(0.12, 0.13, 0.15) * mix(0.4, 1.0, dirShadow);
-    }
-
-    if (uPointLightsOn == 1) {
-        for (int i = 0; i < numPointLights; ++i) {
-            result += CalcPointLight(pointLights[i], i, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
+        if (uApplyWindowFalloff == 1) {
+            vec3 inc = -normalize(dirLight.direction);
+            float ndotv = clamp(dot(norm, viewDir), 0.0, 1.0);
+            float rim = pow(1.0 - ndotv, 2.4) * max(dot(norm, inc), 0.0);
+            result += rim * baseColor * vec3(0.12, 0.13, 0.15) * mix(0.4, 1.0, dirShadow);
         }
+
+        if (uPointLightsOn == 1) {
+            for (int i = 0; i < numPointLights; ++i) {
+                result += CalcPointLight(pointLights[i], i, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
+            }
+        }
+
+        result += CalcSpotLight(spotLight, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
     }
 
-    result += CalcSpotLight(spotLight, norm, fsIn.worldPos, viewDir, baseColor, wallSpec);
-    vec3 rawEmissive = max(uMaterialEmissive, vec3(0.0));
+    vec3 rawEmissive = materialEmission;
     if (uHasEmissiveMap) {
         rawEmissive *= pow(texture(texture_emissive1, fsIn.texCoord).rgb, vec3(2.2));
     }
     float emissionScale = max(uLampEmissionScale * uEmissiveStrengthMultiplier, 0.0);
     vec3 emissive = rawEmissive * emissionScale;
-    result += emissive * 5.0;
+    result += emissive * 5.0 * clamp(uEmissiveSurfaceScale, 0.0, 1.0);
 
     FragColor = vec4(max(result, vec3(0.0)), alpha);
 }

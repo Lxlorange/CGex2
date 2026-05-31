@@ -127,7 +127,7 @@ void Renderer::render(const Scene& scene)
         pointDepthShader_->use();
         pointDepthShader_->setFloat("uFarPlane", pointShadowFarPlane_);
         for (int lightIndex = 0; lightIndex < pointShadowCount; ++lightIndex) {
-            const glm::vec3 lightPos = lightManager_->pointLights[lightIndex].position;
+            const glm::vec3 lightPos = lightManager_->effectivePointLightPosition(static_cast<std::size_t>(lightIndex));
             pointDepthShader_->setVec3("uLightPos", lightPos);
             const auto matrices = pointShadowMaps_[lightIndex]->matrices(lightPos, pointShadowFarPlane_);
             for (int face = 0; face < 6; ++face) {
