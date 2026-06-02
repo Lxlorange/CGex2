@@ -34,10 +34,13 @@ namespace {
 struct LightingState {
     bool isDay = true;
     bool pointLightsOn = true;
+    bool objectShadowsOn = true;
+    bool flashlightOn = false;
     bool key1WasDown = false;
     bool key2WasDown = false;
     bool keyOWasDown = false;
     bool keyCWasDown = false;
+    bool keyFWasDown = false;
 };
 
 void restoreGlStateForScene(GLFWwindow* window)
@@ -283,14 +286,13 @@ void syncLightingUniforms(Shader& shader, Renderer& renderer, const Camera& came
                           const LightingState& lighting, const LightManager& lightManager)
 {
     shader.use();
+    renderer.setDirectionalShadowsEnabled(lighting.objectShadowsOn);
     if (lighting.isDay) {
-        renderer.setDirectionalShadowsEnabled(true);
         shader.setVec3("dirLight.ambient", glm::vec3(0.10f, 0.105f, 0.12f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.88f, 0.82f, 0.68f));
         shader.setVec3("dirLight.specular", glm::vec3(0.22f, 0.20f, 0.18f));
         shader.setInt("uPointLightsOn", lighting.pointLightsOn ? 1 : 0);
     } else {
-        renderer.setDirectionalShadowsEnabled(false);
         shader.setVec3("dirLight.ambient", glm::vec3(0.02f, 0.02f, 0.05f));
         shader.setVec3("dirLight.diffuse", glm::vec3(0.05f, 0.05f, 0.10f));
         shader.setVec3("dirLight.specular", glm::vec3(0.10f, 0.10f, 0.10f));
@@ -570,6 +572,7 @@ int main()
         ImGui::Text("FPS %.1f", static_cast<double>(io.Framerate));
         ImGui::Separator();
         ImGui::Checkbox("Point Lights", &lighting.pointLightsOn);
+        ImGui::Checkbox("Object Shadows", &lighting.objectShadowsOn);
         ImGui::Checkbox("Show Sun Marker", &showSunMarker);
         ImGui::Checkbox("Collision", &collisionEnabled);
         ImGui::Checkbox("Show Colliders", &drawColliders);
@@ -581,7 +584,7 @@ int main()
         ImGui::SliderFloat("Sun Strength", &lightManager.directionalStrength, 0.0f, 3.0f);
         ImGui::SliderFloat("Shadow Strength", &lightManager.tuning.shadowStrength, 0.0f, 1.0f);
         ImGui::SliderFloat("Point Strength", &lightManager.pointLightStrength, 0.0f, 4.0f);
-        ImGui::SliderFloat("Flashlight Strength", &lightManager.spotLightStrength, 0.0f, 3.0f);
+        ImGui::SliderFloat("Flashlight Strength", &lightManager.spotLightStrength, 0.0f, 30.0f);
         ImGui::Separator();
         ImGui::TextUnformatted("Bulb Glow");
         ImGui::Checkbox("Bloom", &lightManager.tuning.bloomEnabled);

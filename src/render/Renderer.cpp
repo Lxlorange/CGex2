@@ -25,7 +25,7 @@ Renderer::Renderer(Shader& litShader, Shader& depthShader, Camera& camera)
     : litShader_(litShader)
     , depthShader_(depthShader)
     , camera_(camera)
-    , shadowMap_(2048, 2048)
+    , shadowMap_(4096, 4096)
 {
 }
 
@@ -73,8 +73,7 @@ void Renderer::render(const Scene& scene)
 
     glm::mat4 lightSpace(1.0f);
     if (wantShadowPass) {
-        lightSpace = ShadowMap::computeLightSpaceMatrixFromFrustum(
-            currentCameraFrustumCorners(w, h), glm::normalize(lightDir_));
+        lightSpace = ShadowMap::computeLightSpaceMatrix(sceneBmin_, sceneBmax_, glm::normalize(lightDir_));
     }
 
     const int pointShadowCount = (lightManager_ != nullptr && pointDepthShader_ != nullptr && pointDepthShader_->isValid())
@@ -84,7 +83,7 @@ void Renderer::render(const Scene& scene)
         pointShadowFarPlane_ = computePointShadowFarPlane();
     }
     while (static_cast<int>(pointShadowMaps_.size()) < pointShadowCount) {
-        pointShadowMaps_.push_back(std::make_unique<PointShadowMap>(384));
+        pointShadowMaps_.push_back(std::make_unique<PointShadowMap>(1152));
     }
 
     if (wantShadowPass) {

@@ -11,7 +11,7 @@
         ],
         "point_light_intensity": 15.553000450134277,
         "point_light_vertical_offset": 0.0,
-        "point_shadow_strength": 0.453000009059906,
+        "point_shadow_strength": 0.9200000166893005,
         "point_shadows_enabled": true
     },
     "directional_light": {
@@ -39,13 +39,13 @@
     },
     "environment": {
         "global_ambient": [
-            0.8382323980331421,
-            0.19092106819152832,
-            0.10401422530412674
+            0.07999999821186066,
+            0.07000000029802322,
+            0.05999999865889549
         ],
         "name": "Scene",
         "point_light_strength": 2.002000093460083,
-        "shadow_strength": 0.7350000143051147,
+        "shadow_strength": 0.949999988079071,
         "spot_light_strength": 0.9539999961853027
     },
     "point_lights": [
