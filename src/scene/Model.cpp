@@ -77,15 +77,15 @@ GLuint uploadEmbeddedTexture(const aiTexture* embeddedTexture, const std::string
     }
 
     if (embeddedTexture->mHeight == 0) {
-        // GLB 内嵌 PNG/JPEG 等压缩字节流：必须先�?stb 从内存解码�?
+        // GLB 内嵌 PNG/JPEG 等压缩字节流
         return loadTexture2DFromMemory(
             reinterpret_cast<const unsigned char*>(embeddedTexture->pcData),
             static_cast<int>(embeddedTexture->mWidth),
             flipV);
     }
 
-    // GLB/Assimp 已解压的 aiTexel 原始像素：不再走 stb，直接上传到 OpenGL�?
-    // aiTexel 在内存中�?BGRA 排列，Texture.cpp 使用 GL_BGRA 正确解释�?
+    // GLB/Assimp 已解压的 aiTexel 原始像素：不再走 stb，直接上传到 OpenGL
+    // aiTexel 在内存中�?BGRA 排列，Texture.cpp 使用 GL_BGRA 正确解释
     const GLuint id = createTexture2DFromRGBAPixels(
         embeddedTexture->pcData,
         static_cast<int>(embeddedTexture->mWidth),
@@ -491,14 +491,6 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& nod
         textures.insert(textures.end(), emissiveTextures.begin(), emissiveTextures.end());
         if (!emissiveTextures.empty() && glm::dot(materialData.emissive, materialData.emissive) <= 0.0001f) {
             materialData.emissive = glm::vec3(1.0f) * emissiveIntensity;
-        }
-        if (!emissiveTextures.empty() || glm::dot(materialData.emissive, materialData.emissive) > 0.0001f) {
-            std::cout << "[Model] Light material debug: " << materialName
-                      << " emissive=(" << materialData.emissive.r << ", "
-                      << materialData.emissive.g << ", "
-                      << materialData.emissive.b << ")"
-                      << " emissiveTexture=" << (!emissiveTextures.empty() ? "yes" : "no")
-                      << '\n';
         }
         auto normalTextures = loadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalTextures.begin(), normalTextures.end());

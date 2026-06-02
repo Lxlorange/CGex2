@@ -109,12 +109,10 @@ bool LightManager::loadConfig(const std::string& path)
 
         if (data.contains("bulb_glow")) {
             const auto& bulb = data.at("bulb_glow");
-            tuning.emissiveStrengthMultiplier = bulb.value("emissive_strength_multiplier", tuning.emissiveStrengthMultiplier);
             tuning.bulbLightIntensity = bulb.value("point_light_intensity", tuning.bulbLightIntensity);
             tuning.bulbLightVerticalOffset = bulb.value("point_light_vertical_offset", tuning.bulbLightVerticalOffset);
             tuning.bulbDownwardInnerCos = bulb.value("downward_inner_cos", tuning.bulbDownwardInnerCos);
             tuning.bulbDownwardOuterCos = bulb.value("downward_outer_cos", tuning.bulbDownwardOuterCos);
-            tuning.emissiveSurfaceScale = bulb.value("emissive_surface_scale", tuning.emissiveSurfaceScale);
             tuning.pointShadowsEnabled = bulb.value("point_shadows_enabled", tuning.pointShadowsEnabled);
             tuning.pointShadowStrength = bulb.value("point_shadow_strength", tuning.pointShadowStrength);
             if (bulb.contains("point_light_color")) {
@@ -181,8 +179,6 @@ bool LightManager::saveConfig(const std::string& path) const
     };
 
     data["bulb_glow"] = {
-        { "emissive_strength_multiplier", tuning.emissiveStrengthMultiplier },
-        { "emissive_surface_scale", tuning.emissiveSurfaceScale },
         { "point_light_intensity", tuning.bulbLightIntensity },
         { "point_light_vertical_offset", tuning.bulbLightVerticalOffset },
         { "downward_inner_cos", tuning.bulbDownwardInnerCos },
@@ -221,8 +217,9 @@ void LightManager::sendToShader(unsigned int shaderID) const
     glUniform1i(glGetUniformLocation(shaderID, "numPointLights"), numLights);
     setFloat(shaderID, "uBulbDownwardInnerCos", tuning.bulbDownwardInnerCos);
     setFloat(shaderID, "uBulbDownwardOuterCos", tuning.bulbDownwardOuterCos);
-    setFloat(shaderID, "uEmissiveStrengthMultiplier", tuning.emissiveStrengthMultiplier);
-    setFloat(shaderID, "uEmissiveSurfaceScale", tuning.emissiveSurfaceScale);
+    const float emissiveFromPower = std::max(tuning.bulbLightIntensity, 0.0f) * 0.12f;
+    setFloat(shaderID, "uEmissiveStrengthMultiplier", emissiveFromPower);
+    setFloat(shaderID, "uEmissiveSurfaceScale", 0.35f);
     glUniform1i(glGetUniformLocation(shaderID, "uPointShadowsEnabled"), tuning.pointShadowsEnabled ? 1 : 0);
     setFloat(shaderID, "uPointShadowStrength", tuning.pointShadowStrength);
 

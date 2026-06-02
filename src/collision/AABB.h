@@ -36,5 +36,3 @@ struct NamedAABB {
     AABB box;
 };
 
-/// A few thin walls around the origin so collision is visible without splitting the classroom mesh.
-void appendDemoRoomColliders(std::vector<NamedAABB>& out);

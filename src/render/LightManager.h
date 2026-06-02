@@ -30,8 +30,6 @@ struct RenderTuning {
     float bloomThreshold = 1.0f;
     float bloomStrength = 0.5f;
     int bloomBlurIterations = 8;
-    float emissiveStrengthMultiplier = 0.75f;
-    float emissiveSurfaceScale = 0.35f;
     glm::vec3 bulbLightColor{ 1.0f, 0.62f, 0.28f };
     float bulbLightIntensity = 8.0f;
     float bulbLightVerticalOffset = 0.0f;
